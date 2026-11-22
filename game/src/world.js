@@ -24,6 +24,32 @@ export function roadDistance(x, y) {
   return Math.min(dx, dy);
 }
 function onRoad(x, y) { return roadDistance(x, y) < WORLD.road / 2; }
+/** Nearest road centre line to a coordinate (roads repeat every block). */
+function nearestRoadCentre(v) {
+  const k = Math.round((v - 160) / WORLD.block);
+  return 160 + k * WORLD.block;
+}
+/**
+ * Steer along the road grid toward a target, like a driver who follows roads:
+ * stay on the road you are on until an intersection, then turn toward the
+ * target's road. Returns the angle to aim at.
+ */
+export function roadSteerAngle(fromX, fromY, toX, toY) {
+  const dx = toX - fromX;
+  const dy = toY - fromY;
+  const hRoad = nearestRoadCentre(fromY);
+  const vRoad = nearestRoadCentre(fromX);
+  const onH = Math.abs(fromY - hRoad) < 26;
+  const onV = Math.abs(fromX - vRoad) < 26;
+  let tx;
+  let ty;
+  if (onH && Math.abs(dx) > 70) { tx = toX; ty = fromY; }
+  else if (onV && Math.abs(dy) > 70) { tx = fromX; ty = toY; }
+  else if (onH) { tx = toX; ty = toY; }
+  else if (onV) { tx = toX; ty = toY; }
+  else { tx = vRoad; ty = hRoad; }
+  return Math.atan2(ty - fromY, tx - fromX);
+}
 function circleHitsRect(cx, cy, r, rect) {
   const nx = clamp(cx, rect.x, rect.x + rect.w);
   const ny = clamp(cy, rect.y, rect.y + rect.h);
@@ -38,8 +64,10 @@ export function createWorld(random) {
   // marina in the north-west corner. The west strip is beach and water.
   for (let bx = 0; bx < 10; bx += 1) {
     for (let by = 0; by < 10; by += 1) {
-      const x0 = bx * WORLD.block + WORLD.road / 2 + 20;
-      const y0 = by * WORLD.block + WORLD.road / 2 + 20;
+      // A block's interior sits between its roads: road centres are at
+      // 160 + k*320 with a 96-wide road, so the interior starts at 228.
+      const x0 = bx * WORLD.block + 228;
+      const y0 = by * WORLD.block + 228;
       const w = WORLD.block - WORLD.road - 40;
       if (bx === 0 && by === 0) continue; // marina docks
       if (bx === 0) continue; // beach strip
@@ -337,7 +365,7 @@ export function createWorld(random) {
     for (let i = police.length - 1; i >= 0; i -= 1) {
       const cop = police[i];
       cop.siren += dt * 6;
-      const targetAngle = Math.atan2(player.y - cop.y, player.x - cop.x);
+      const targetAngle = roadSteerAngle(cop.x, cop.y, player.x, player.y);
       let diff = targetAngle - cop.angle;
       while (diff > Math.PI) diff -= TAU;
       while (diff < -Math.PI) diff += TAU;
@@ -348,10 +376,10 @@ export function createWorld(random) {
       pushOutOfBuildings(cop, CAR.length / 2);
       if (dist(cop.x, cop.y, player.x, player.y) < 44) {
         if (player.invuln <= 0) {
-          player.health -= inCar ? 8 : 20;
-          player.invuln = 1;
+          player.health -= inCar ? 5 : 20;
+          player.invuln = 1.5;
           events |= EVENT_HIT;
-          if (inCar) { inCar.speed *= 0.5; state.carHealth -= 12; }
+          if (inCar) { inCar.speed *= 0.5; state.carHealth -= 4; }
           if (player.health <= 0) { state.busted = true; events |= EVENT_BUSTED; }
         }
       }
@@ -377,7 +405,7 @@ export function createWorld(random) {
             state.missionTime = 0;
           }
         }
-        if (state.missionActive && dist(player.x, player.y, m.target.x, m.target.y) < 90) {
+        if (state.missionActive && dist(player.x, player.y, m.target.x, m.target.y) < 110) {
           state.cashAmount += m.reward;
           state.missionActive = false;
           state.wanted = Math.max(0, state.wanted - 1);

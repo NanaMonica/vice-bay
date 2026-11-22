@@ -140,10 +140,10 @@ export function createRenderer(canvas) {
       context.fillStyle = 'rgba(0,0,0,0.25)';
       context.fillRect(a.x, a.y + b.h * s - 6 * s, b.w * s, 6 * s);
       context.fillStyle = tone.roof;
-      context.fillRect(a.x, a.y - h * 0.35, b.w * s, b.h * s);
+      context.fillRect(a.x, a.y - h * 0.22, b.w * s, b.h * s);
       context.strokeStyle = 'rgba(255,255,255,0.25)';
       context.lineWidth = 2 * s;
-      context.strokeRect(a.x + 4 * s, a.y - h * 0.35 + 4 * s, b.w * s - 8 * s, b.h * s - 8 * s);
+      context.strokeRect(a.x + 4 * s, a.y - h * 0.22 + 4 * s, b.w * s - 8 * s, b.h * s - 8 * s);
     }
     // Marina label area (north-west corner, open docks).
     const m = worldToScreen(320, 320);
@@ -242,7 +242,8 @@ export function createRenderer(canvas) {
     const s = view.scale;
     const mw = 220 * s; const mh = 150 * s;
     const mx = FIELD.width - mw - 16; const my = 16;
-    const k = mw / WORLD.size;
+    const kx = mw / WORLD.size;
+    const ky = mh / WORLD.size;
     context.fillStyle = PALETTE.hud;
     roundRect(context, mx - 6, my - 6, mw + 12, mh + 12, 8);
     context.fill();
@@ -252,23 +253,24 @@ export function createRenderer(canvas) {
     context.fillRect(mx, my, mw, mh);
     context.fillStyle = '#2b2f38';
     for (let i = 0; i < 10; i += 1) {
-      const c = (160 + i * WORLD.block) * k;
-      context.fillRect(mx + c - 3, my, 6, mh);
-      context.fillRect(mx, my + c - 2, mw, 4);
+      const cx = (160 + i * WORLD.block) * kx;
+      const cy = (160 + i * WORLD.block) * ky;
+      context.fillRect(mx + cx - 3, my, 6, mh);
+      context.fillRect(mx, my + cy - 2, mw, 4);
     }
     context.fillStyle = '#1c6f8f';
     context.fillRect(mx, my, 8, mh);
     if (state.missionActive) {
       const m = MISSIONS[state.missionIndex];
       context.fillStyle = PALETTE.marker;
-      context.beginPath(); context.arc(mx + m.target.x * k, my + m.target.y * k, 5, 0, Math.PI * 2); context.fill();
+      context.beginPath(); context.arc(mx + m.target.x * kx, my + m.target.y * ky, 5, 0, Math.PI * 2); context.fill();
     }
     for (const cop of state.police) {
       context.fillStyle = '#5b8cff';
-      context.fillRect(mx + cop.x * k - 2, my + cop.y * k - 2, 4, 4);
+      context.fillRect(mx + cop.x * kx - 2, my + cop.y * ky - 2, 4, 4);
     }
     context.fillStyle = PALETTE.player;
-    context.beginPath(); context.arc(mx + state.player.x * k, my + state.player.y * k, 5, 0, Math.PI * 2); context.fill();
+    context.beginPath(); context.arc(mx + state.player.x * kx, my + state.player.y * ky, 5, 0, Math.PI * 2); context.fill();
     context.restore();
     text('VICE BAY', mx + 4, my + mh - 8, 13, PALETTE.muted, 'left', 'bottom');
   }
@@ -276,24 +278,26 @@ export function createRenderer(canvas) {
   function drawHud(state, time) {
     const s = view.scale;
     context.fillStyle = PALETTE.hud;
-    roundRect(context, 12, 12, 300, 86, 10);
+    roundRect(context, 12, 12, 470, 104, 10);
     context.fill();
     text(`$${state.cashAmount}`, 26, 48, 30, PALETTE.cash, 'left', 'middle');
     const m = state.missionActive ? MISSIONS[state.missionIndex] : null;
-    plain(m ? `${m.name} — ${m.brief}` : (state.allDone ? 'All missions done — free roam!' : 'Press M for a mission'), 26, 76, 15, PALETTE.text, 'left', 'middle');
-    if (m && m.timeLimit) plain(`Time left: ${Math.ceil(state.missionTime)}s`, 26, 92, 15, state.missionTime < 15 ? PALETTE.danger : PALETTE.text, 'left', 'middle');
+    const missionLine = m ? `${m.name} → ${m.target.label}` : (state.allDone ? 'All missions done — free roam!' : 'Free roam — steal a car, grab cash');
+    plain(missionLine, 26, 76, 15, PALETTE.text, 'left', 'middle');
+    if (m && m.timeLimit) plain(`Time left: ${Math.ceil(state.missionTime)}s`, 26, 100, 15, state.missionTime < 15 ? PALETTE.danger : PALETTE.text, 'left', 'middle');
+    else if (m) plain(m.brief.length > 52 ? m.brief.slice(0, 52) + '…' : m.brief, 26, 100, 14, PALETTE.muted, 'left', 'middle');
     // Wanted stars.
     const stars = Math.floor(state.wanted);
     for (let i = 0; i < 5; i += 1) {
-      text('★', 330 + i * 30, 44, 30, i < stars ? PALETTE.star : 'rgba(255,255,255,0.18)', 'left', 'middle');
+      text('★', 500 + i * 30, 44, 30, i < stars ? PALETTE.star : 'rgba(255,255,255,0.18)', 'left', 'middle');
     }
-    plain(state.wanted > 0 ? 'WANTED — lose the cops' : 'Clean', 330, 74, 15, state.wanted > 0 ? PALETTE.danger : PALETTE.muted, 'left', 'middle');
+    plain(state.wanted > 0 ? 'WANTED — lose the cops' : 'Clean', 500, 74, 15, state.wanted > 0 ? PALETTE.danger : PALETTE.muted, 'left', 'middle');
     // Health bar.
     context.fillStyle = 'rgba(0,0,0,0.5)';
-    roundRect(context, 12, 108, 180, 16, 8); context.fill();
+    roundRect(context, 12, 126, 180, 16, 8); context.fill();
     context.fillStyle = state.player.health > 40 ? PALETTE.cash : PALETTE.danger;
-    roundRect(context, 12, 108, 180 * (state.player.health / 100), 16, 8); context.fill();
-    plain('HEALTH', 200, 120, 13, PALETTE.text, 'left', 'middle');
+    roundRect(context, 12, 126, 180 * (state.player.health / 100), 16, 8); context.fill();
+    plain('HEALTH', 200, 138, 13, PALETTE.text, 'left', 'middle');
     // Speed when driving.
     if (state.player.inCar >= 0) {
       const car = state.cars[state.player.inCar];
