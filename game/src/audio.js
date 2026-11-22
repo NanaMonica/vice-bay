@@ -3,22 +3,19 @@
 // level, the Kestrel's rotor thumps overhead at 3 stars, and three radio
 // stations loop their own bass lines under the city. M toggles mute, R
 // cycles the stations.
-import { RADIO_STATIONS } from './districts.js';
+import { STATIONS } from './districts.js';
 
-export function createAudio() {
+export function makeSound() {
   let ctx = null;
   let muted = false;
-  let engineOsc = null;
-  let engineGain = null;
-  let sirenOsc = null;
-  let sirenGain = null;
-  let rotorOsc = null;
-  let rotorGain = null;
-  let musicTimer = null;
-  let beat = 0;
   let station = 0;
+  let step = 0;
+  let engine = null;
+  let siren = null;
+  let rotor = null;
 
-  function ensure() {
+  /** Build the context and the three always-on voices on first use. */
+  function startContext() {
     if (ctx) return true;
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
@@ -26,48 +23,33 @@ export function createAudio() {
     } catch {
       return false;
     }
-    engineOsc = ctx.createOscillator();
-    engineOsc.type = 'sawtooth';
-    engineOsc.frequency.value = 50;
-    engineGain = ctx.createGain();
-    engineGain.gain.value = 0;
-    engineOsc.connect(engineGain).connect(ctx.destination);
-    engineOsc.start();
-    sirenOsc = ctx.createOscillator();
-    sirenOsc.type = 'square';
-    sirenOsc.frequency.value = 700;
-    sirenGain = ctx.createGain();
-    sirenGain.gain.value = 0;
-    sirenOsc.connect(sirenGain).connect(ctx.destination);
-    sirenOsc.start();
-    // The Kestrel's rotor: a low thump that only sounds while it hunts.
-    rotorOsc = ctx.createOscillator();
-    rotorOsc.type = 'square';
-    rotorOsc.frequency.value = 42;
-    rotorGain = ctx.createGain();
-    rotorGain.gain.value = 0;
-    rotorOsc.connect(rotorGain).connect(ctx.destination);
-    rotorOsc.start();
-    musicTimer = window.setInterval(() => {
+    engine = voice('sawtooth', 50, 0);
+    siren = voice('square', 700, 0);
+    rotor = voice('square', 42, 0);
+    window.setInterval(() => {
       if (muted || !ctx) return;
-      const bass = RADIO_STATIONS[station % RADIO_STATIONS.length].bass;
-      const note = bass[beat % bass.length];
-      beat += 1;
-      if (!note) return;
-      const osc = ctx.createOscillator();
-      osc.type = 'triangle';
-      osc.frequency.value = note;
-      const gain = ctx.createGain();
-      gain.gain.setValueAtTime(0.05, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.25);
+      const line = STATIONS[station % STATIONS.length].bass;
+      const note = line[step % line.length];
+      step += 1;
+      if (note) tone(note, 0.22, 'triangle', 0.05);
     }, 240);
     return true;
   }
 
-  function blip(freq, dur, type, vol) {
+  /** One always-on oscillator + gain, already connected and started. */
+  function voice(type, freq, level) {
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.value = freq;
+    const gain = ctx.createGain();
+    gain.gain.value = level;
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    return { osc, gain };
+  }
+
+  /** A short note that fades out. */
+  function tone(freq, dur, type, vol) {
     if (!ctx || muted) return;
     const osc = ctx.createOscillator();
     osc.type = type || 'sine';
@@ -80,7 +62,8 @@ export function createAudio() {
     osc.stop(ctx.currentTime + dur);
   }
 
-  function noise(dur, vol) {
+  /** A short burst of filtered noise (the gunshot). */
+  function hiss(dur, vol) {
     if (!ctx || muted) return;
     const len = Math.floor(ctx.sampleRate * dur);
     const buf = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -97,35 +80,41 @@ export function createAudio() {
     src.start();
   }
 
+  /** A little arpeggio, one note every `gap` ms. */
+  function arp(freqs, gap, dur, type, vol) {
+    freqs.forEach((f, i) => window.setTimeout(() => tone(f, dur, type, vol), i * gap));
+  }
+
   return {
     /** Call from a user gesture so the browser lets audio start. */
-    unlock() { if (ensure() && ctx.state === 'suspended') ctx.resume(); },
+    unlock() { if (startContext() && ctx.state === 'suspended') ctx.resume(); },
     toggleMute() { muted = !muted; return muted; },
     isMuted() { return muted; },
     /** Cycle to the next radio station; returns its name. */
     nextStation() {
-      station = (station + 1) % RADIO_STATIONS.length;
-      beat = 0;
-      return RADIO_STATIONS[station].name;
+      station = (station + 1) % STATIONS.length;
+      step = 0;
+      return STATIONS[station].name;
     },
     /** Per-frame: speed 0..580, wanted 0..5, time in seconds, heli hunting. */
     update(speed, wanted, time, heli) {
       if (!ctx || muted) return;
-      engineGain.gain.value = speed > 20 ? 0.03 + Math.abs(speed) / 580 * 0.05 : 0;
-      engineOsc.frequency.value = 50 + Math.abs(speed) * 0.16;
+      const moving = Math.abs(speed);
+      engine.gain.gain.value = moving > 20 ? 0.03 + (moving / 580) * 0.05 : 0;
+      engine.osc.frequency.value = 50 + moving * 0.16;
       if (wanted >= 2) {
-        sirenGain.gain.value = 0.02;
-        sirenOsc.frequency.value = Math.floor(time * 2) % 2 === 0 ? 700 : 950;
+        siren.gain.gain.value = 0.02;
+        siren.osc.frequency.value = Math.floor(time * 2) % 2 === 0 ? 700 : 950;
       } else {
-        sirenGain.gain.value = 0;
+        siren.gain.gain.value = 0;
       }
-      rotorGain.gain.value = heli ? 0.02 + 0.008 * Math.sin(time * 25) : 0;
+      rotor.gain.gain.value = heli ? 0.02 + 0.008 * Math.sin(time * 25) : 0;
     },
-    cash() { blip(880, 0.12, 'sine', 0.14); window.setTimeout(() => blip(1318, 0.18, 'sine', 0.14), 90); },
-    punch() { blip(140, 0.1, 'square', 0.12); },
-    shoot() { noise(0.09, 0.22); blip(190, 0.08, 'square', 0.1); },
-    steal() { blip(220, 0.15, 'sawtooth', 0.1); },
-    mission() { [523, 659, 784].forEach((f, i) => window.setTimeout(() => blip(f, 0.2, 'triangle', 0.14), i * 110)); },
-    busted() { [392, 330, 262].forEach((f, i) => window.setTimeout(() => blip(f, 0.3, 'sawtooth', 0.1), i * 160)); },
+    cash() { tone(880, 0.12, 'sine', 0.14); window.setTimeout(() => tone(1318, 0.18, 'sine', 0.14), 90); },
+    punch() { tone(140, 0.1, 'square', 0.12); },
+    shoot() { hiss(0.09, 0.22); tone(190, 0.08, 'square', 0.1); },
+    steal() { tone(220, 0.15, 'sawtooth', 0.1); },
+    job() { arp([523, 659, 784], 110, 0.2, 'triangle', 0.14); },
+    busted() { arp([392, 330, 262], 160, 0.3, 'sawtooth', 0.1); },
   };
 }

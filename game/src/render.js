@@ -1,35 +1,32 @@
-// Drawing only: the world's state and the current screen in, pixels out.
+// Drawing only: the world's state and the current view in, pixels out.
 // A three.js scene paints the city in 3D at golden hour — low orange sun,
 // long shadows, towers with lit windows, streets, beach and bay, traffic,
 // pedestrians, police, the VBPD Air-1 "Kestrel" helicopter with its
 // searchlight, and roadblocks — while DOM elements draw the HUD, wanted
-// stars, mission text, respect rank, radio station and a live minimap over
-// it. The camera chases the player (or the car) from behind and above;
+// stars, job text, respect rank, radio station and a live minimap over it.
+// The camera chases the player (or the car) from behind and above;
 // screenshot scenes may pass a fixed camera instead.
-import { FIELD, MISSIONS, PALETTE, WORLD } from './config.js';
-import { districtAt, RADIO_STATIONS, respectRankFor } from './districts.js';
+import { HUES, JOBS, MAP, VIEW } from './config.js';
+import { districtOf, rankFor, STATIONS } from './districts.js';
 
-export const SCREEN_TITLE = 'title';
-export const SCREEN_PLAY = 'play';
-export const SCREEN_PAUSED = 'paused';
-export const SCREEN_OVER = 'over';
-export const SCREEN_BUSTED = 'busted';
+export const VIEW_TITLE = 'title';
+export const VIEW_PLAY = 'play';
+export const VIEW_PAUSED = 'paused';
+export const VIEW_OVER = 'over';
+export const VIEW_BUSTED = 'busted';
 
 const TAU = Math.PI * 2;
 
-/** World (x, y) becomes three.js (x, 0, y); a 2D angle a becomes rotation.y = -a. */
-function toVec(x, y, out) { out.set(x, 0, y); return out; }
-
-function makeCanvas(w, h) {
+function canvas2d(w, h) {
   const c = document.createElement('canvas');
   c.width = w; c.height = h;
   return c;
 }
 
-/** Tiny deterministic shuffle for window lights, seeded by the tone index. */
-function toneRand(seed) {
-  let a = seed * 2654435761 | 0;
-  return function random() {
+/** Tiny deterministic stream for window lights, seeded by the tone index. */
+function litStream(seed) {
+  let a = (seed * 2654435761) | 0;
+  return function next() {
     a = (a + 0x6d2b79f5) | 0;
     let t = Math.imul(a ^ (a >>> 15), 1 | a);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
@@ -37,7 +34,7 @@ function toneRand(seed) {
   };
 }
 
-export function createRenderer(canvas, state) {
+export function buildRenderer(canvas, state) {
   const THREE = window.THREE;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
@@ -46,15 +43,15 @@ export function createRenderer(canvas, state) {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(PALETTE.sky);
-  scene.fog = new THREE.Fog(PALETTE.fog, 900, 3200);
+  scene.background = new THREE.Color(HUES.sky);
+  scene.fog = new THREE.Fog(HUES.fog, 900, 3200);
 
-  const camera = new THREE.PerspectiveCamera(62, FIELD.width / FIELD.height, 1, 6000);
+  const camera = new THREE.PerspectiveCamera(62, VIEW.width / VIEW.height, 1, 6000);
 
   // --- lights: low golden-hour sun plus a warm sky fill. The sun's
   // shadow box rides with the player so shadows stay crisp — and long,
   // because the sun sits low — wherever the action is.
-  const sun = new THREE.DirectionalLight(PALETTE.sun, 1.25);
+  const sun = new THREE.DirectionalLight(HUES.sun, 1.25);
   sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
   sun.shadow.camera.left = -420;
@@ -66,15 +63,14 @@ export function createRenderer(canvas, state) {
   sun.shadow.bias = -0.0006;
   scene.add(sun);
   scene.add(sun.target);
-  const sky = new THREE.HemisphereLight(0xffd9a8, 0x5a4a3a, 0.6);
-  scene.add(sky);
+  scene.add(new THREE.HemisphereLight(0xffd9a8, 0x5a4a3a, 0.6));
 
   // --- ground: one big canvas texture with the whole city plan painted on
   // it — grass, beach, bay, roads with dashes, parks and the marina.
-  function groundTexture() {
-    const c = makeCanvas(1024, 1024);
+  function paintGround() {
+    const c = canvas2d(1024, 1024);
     const g = c.getContext('2d');
-    const k = 1024 / WORLD.size;
+    const k = 1024 / MAP.size;
     const X = (v) => v * k;
     g.fillStyle = '#55703f';
     g.fillRect(0, 0, 1024, 1024);
@@ -85,7 +81,7 @@ export function createRenderer(canvas, state) {
     g.fillRect(X(66), 0, X(54), 1024);
     // Sidewalk-coloured road beds, then the road itself, then dashes.
     for (let i = 0; i < 10; i += 1) {
-      const centre = 160 + i * WORLD.block;
+      const centre = 160 + i * MAP.block;
       g.fillStyle = '#454b58';
       g.fillRect(X(centre - 56), 0, X(112), 1024);
       g.fillRect(0, X(centre - 56), 1024, X(112));
@@ -95,8 +91,8 @@ export function createRenderer(canvas, state) {
     }
     g.fillStyle = '#e8d44d';
     for (let i = 0; i < 10; i += 1) {
-      const centre = 160 + i * WORLD.block;
-      for (let d = 40; d < WORLD.size; d += 90) {
+      const centre = 160 + i * MAP.block;
+      for (let d = 40; d < MAP.size; d += 90) {
         g.fillRect(X(centre - 2), X(d), X(4), X(30));
         g.fillRect(X(d), X(centre - 2), X(30), X(4));
       }
@@ -124,29 +120,29 @@ export function createRenderer(canvas, state) {
   }
 
   const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(WORLD.size, WORLD.size),
-    new THREE.MeshLambertMaterial({ map: groundTexture() }),
+    new THREE.PlaneGeometry(MAP.size, MAP.size),
+    new THREE.MeshLambertMaterial({ map: paintGround() }),
   );
   ground.rotation.x = -Math.PI / 2;
-  ground.position.set(WORLD.size / 2, 0, WORLD.size / 2);
+  ground.position.set(MAP.size / 2, 0, MAP.size / 2);
   ground.receiveShadow = true;
   scene.add(ground);
 
   // Open water west of the beach, slightly above the ground plane.
   const water = new THREE.Mesh(
-    new THREE.PlaneGeometry(66, WORLD.size),
-    new THREE.MeshPhongMaterial({ color: PALETTE.water, shininess: 120, transparent: true, opacity: 0.92 }),
+    new THREE.PlaneGeometry(66, MAP.size),
+    new THREE.MeshPhongMaterial({ color: HUES.water, shininess: 120, transparent: true, opacity: 0.92 }),
   );
   water.rotation.x = -Math.PI / 2;
-  water.position.set(33, 1, WORLD.size / 2);
+  water.position.set(33, 1, MAP.size / 2);
   scene.add(water);
 
   // --- buildings: shared window textures, one per tone, so the towers read
   // as a lived-in city instead of plain boxes.
-  function buildingTexture(tone, base) {
-    const c = makeCanvas(128, 256);
+  function paintFacade(tone, base) {
+    const c = canvas2d(128, 256);
     const g = c.getContext('2d');
-    const rnd = toneRand(tone + 1);
+    const rnd = litStream(tone + 1);
     g.fillStyle = base;
     g.fillRect(0, 0, 128, 256);
     for (let row = 0; row < 12; row += 1) {
@@ -163,7 +159,7 @@ export function createRenderer(canvas, state) {
   }
   const toneBases = ['#8e6fb0', '#5f8fb8', '#b87a5a', '#6a9a7a', '#c9a86a', '#7a7f8e'];
   const toneMats = toneBases.map((base, i) => {
-    const tex = buildingTexture(i, base);
+    const tex = paintFacade(i, base);
     const side = new THREE.MeshLambertMaterial({ map: tex });
     const roof = new THREE.MeshLambertMaterial({ color: new THREE.Color(base).multiplyScalar(0.82) });
     return { side, roof };
@@ -246,15 +242,15 @@ export function createRenderer(canvas, state) {
   const glassMat = new THREE.MeshLambertMaterial({ color: 0x1a2530 });
   const headMat = new THREE.MeshBasicMaterial({ color: 0xffe9a8 });
   const tailMat = new THREE.MeshBasicMaterial({ color: 0xff2d2d });
-  function buildCar(color, police) {
+  function assembleCar(color, police) {
     const group = new THREE.Group();
-    const bodyMat = new THREE.MeshLambertMaterial({ color: police ? PALETTE.police : color });
+    const bodyMat = new THREE.MeshLambertMaterial({ color: police ? HUES.police : color });
     const body = new THREE.Mesh(new THREE.BoxGeometry(56, 11, 28), bodyMat);
     body.position.y = 8;
     body.castShadow = true;
     group.add(body);
     group.userData.body = body;
-    const cabin = new THREE.Mesh(new THREE.BoxGeometry(28, 9, 24), police ? new THREE.MeshLambertMaterial({ color: PALETTE.policeTrim }) : glassMat);
+    const cabin = new THREE.Mesh(new THREE.BoxGeometry(28, 9, 24), police ? new THREE.MeshLambertMaterial({ color: HUES.policeTrim }) : glassMat);
     cabin.position.set(-4, 17, 0);
     cabin.castShadow = true;
     group.add(cabin);
@@ -285,10 +281,10 @@ export function createRenderer(canvas, state) {
     group.userData.bar = bar;
     return group;
   }
-  const trafficColors = PALETTE.traffic;
+  const trafficColors = HUES.traffic;
 
   // --- people: legs, shirt torso and head; the player wears yellow.
-  function buildPerson(shirtColor, skinColor) {
+  function assemblePerson(shirtColor, skinColor) {
     const group = new THREE.Group();
     const legMat = new THREE.MeshLambertMaterial({ color: 0x2b3442 });
     for (const dz of [4, -4]) {
@@ -307,7 +303,7 @@ export function createRenderer(canvas, state) {
     return group;
   }
   const skinTones = [0xe8b98a, 0xc98d5f, 0x8a5a3b, 0xf2c9a0];
-  const playerMesh = buildPerson(PALETTE.player, 0xe8b98a);
+  const playerMesh = assemblePerson(HUES.player, 0xe8b98a);
   playerMesh.scale.setScalar(1.15);
   scene.add(playerMesh);
 
@@ -356,31 +352,31 @@ export function createRenderer(canvas, state) {
 
   // --- cash coins, bullets and the mission beam.
   const coinGeo = new THREE.CylinderGeometry(9, 9, 3, 12);
-  const coinMat = new THREE.MeshLambertMaterial({ color: PALETTE.cash, emissive: 0x1d7a44 });
+  const coinMat = new THREE.MeshLambertMaterial({ color: HUES.cash, emissive: 0x1d7a44 });
   const bulletGeo = new THREE.BoxGeometry(16, 2, 2);
   const bulletMat = new THREE.MeshBasicMaterial({ color: 0xffe95c });
   const beam = new THREE.Mesh(
     new THREE.CylinderGeometry(9, 9, 220, 12, 1, true),
-    new THREE.MeshBasicMaterial({ color: PALETTE.marker, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ color: HUES.marker, transparent: true, opacity: 0.28, side: THREE.DoubleSide, depthWrite: false }),
   );
   beam.position.y = 110;
   scene.add(beam);
   const diamond = new THREE.Mesh(
     new THREE.OctahedronGeometry(14),
-    new THREE.MeshBasicMaterial({ color: PALETTE.marker }),
+    new THREE.MeshBasicMaterial({ color: HUES.marker }),
   );
   diamond.position.y = 70;
   scene.add(diamond);
   const ring = new THREE.Mesh(
     new THREE.RingGeometry(26, 34, 24),
-    new THREE.MeshBasicMaterial({ color: PALETTE.marker, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
+    new THREE.MeshBasicMaterial({ color: HUES.marker, transparent: true, opacity: 0.85, side: THREE.DoubleSide }),
   );
   ring.rotation.x = -Math.PI / 2;
   ring.position.y = 1.5;
   scene.add(ring);
 
   // --- keep one mesh per live object; drop the mesh when its object leaves.
-  function syncList(list, map, create, update) {
+  function syncMeshes(list, map, create, update) {
     const seen = new Set();
     for (const obj of list) {
       seen.add(obj);
@@ -426,27 +422,27 @@ export function createRenderer(canvas, state) {
   const rankEl = $('hud-rank');
   let lastHud = '';
 
-  function drawMinimap(state) {
+  function paintMap(state) {
     const w = minimap.width;
     const h = minimap.height;
-    const kx = w / WORLD.size;
-    const ky = h / WORLD.size;
+    const kx = w / MAP.size;
+    const ky = h / MAP.size;
     mapCtx.fillStyle = '#16351f';
     mapCtx.fillRect(0, 0, w, h);
     mapCtx.fillStyle = '#2b2f38';
     for (let i = 0; i < 10; i += 1) {
-      const c = (160 + i * WORLD.block) * kx;
+      const c = (160 + i * MAP.block) * kx;
       mapCtx.fillRect(c - 2, 0, 4, h);
-      const cy = (160 + i * WORLD.block) * ky;
+      const cy = (160 + i * MAP.block) * ky;
       mapCtx.fillRect(0, cy - 2, w, 4);
     }
     mapCtx.fillStyle = '#1c6f8f';
     mapCtx.fillRect(0, 0, 8, h);
     if (state.missionActive) {
-      const m = MISSIONS[state.missionIndex];
+      const job = JOBS[state.missionIndex];
       mapCtx.fillStyle = '#37d67a';
       mapCtx.beginPath();
-      mapCtx.arc(m.target.x * kx, m.target.y * ky, 5, 0, TAU);
+      mapCtx.arc(job.goal.x * kx, job.goal.y * ky, 5, 0, TAU);
       mapCtx.fill();
     }
     for (const cop of state.police) {
@@ -466,28 +462,28 @@ export function createRenderer(canvas, state) {
     mapCtx.fillStyle = '#f2f5f8';
     mapCtx.font = 'bold 11px system-ui, sans-serif';
     mapCtx.textAlign = 'left';
-    mapCtx.fillText(districtAt(state.player.x, state.player.y).toUpperCase(), 6, h - 6);
+    mapCtx.fillText(districtOf(state.player.x, state.player.y).toUpperCase(), 6, h - 6);
   }
 
-  function updateHud(state, screen, best) {
+  function refreshHud(state, screen, best) {
     const inCar = state.player.inCar >= 0;
-    const m = state.missionActive ? MISSIONS[state.missionIndex] : null;
-    const district = districtAt(state.player.x, state.player.y);
-    const station = RADIO_STATIONS[state.radioStation % RADIO_STATIONS.length];
+    const job = state.missionActive ? JOBS[state.missionIndex] : null;
+    const district = districtOf(state.player.x, state.player.y);
+    const station = STATIONS[state.radioStation % STATIONS.length];
     const key = `${state.cashAmount}|${state.missionIndex}|${state.missionActive}|${Math.ceil(state.missionTime)}|${Math.floor(state.wanted)}|${Math.round(state.player.health)}|${inCar ? Math.round(Math.abs(state.cars[state.player.inCar].speed) * 0.12) : -1}|${state.messageTimer > 0 ? state.message : ''}|${screen}|${state.missionsDone}|${state.garageStage}|${state.radioStation}|${district}|${state.dispatchUnit}`;
     if (key === lastHud) return;
     lastHud = key;
-    hud.style.display = screen === SCREEN_PLAY ? 'block' : 'none';
+    hud.style.display = screen === VIEW_PLAY ? 'block' : 'none';
     cashEl.textContent = `$${state.cashAmount}`;
-    missionEl.textContent = m ? `${m.name} → ${m.target.label}` : (state.allDone ? 'All missions done — free roam!' : 'Free roam — steal a car, grab cash');
-    rankEl.textContent = `RESPECT: ${respectRankFor(state.missionsDone)} · ${district} · Garage Stage ${state.garageStage} · ♪ ${station.name}`;
-    if (m && m.timeLimit) {
+    missionEl.textContent = job ? `${job.title} → ${job.goal.place}` : (state.allDone ? 'All missions done — free roam!' : 'Free roam — steal a car, grab cash');
+    rankEl.textContent = `RESPECT: ${rankFor(state.missionsDone)} · ${district} · Garage Stage ${state.garageStage} · ♪ ${station.name}`;
+    if (job && job.limit) {
       timerEl.style.display = 'block';
       timerEl.textContent = `Time left: ${Math.ceil(state.missionTime)}s`;
       timerEl.style.color = state.missionTime < 15 ? '#ff5c5c' : '#f2f5f8';
-    } else if (m) {
+    } else if (job) {
       timerEl.style.display = 'block';
-      timerEl.textContent = m.brief;
+      timerEl.textContent = job.text;
       timerEl.style.color = '#9aa5b5';
     } else {
       timerEl.style.display = 'none';
@@ -517,7 +513,7 @@ export function createRenderer(canvas, state) {
     }
   }
 
-  function showPanel(title, lines, prompt, accent) {
+  function openPanel(title, lines, prompt, accent) {
     panelEl.style.display = 'flex';
     panelTitle.textContent = title;
     panelTitle.style.color = accent || '#f2f5f8';
@@ -548,7 +544,7 @@ export function createRenderer(canvas, state) {
   window.addEventListener('resize', resize);
   resize();
 
-  /** Paint one frame: the world, then the HUD or a panel for the screen. */
+  /** Paint one frame: the world, then the HUD or a panel for the view. */
   function draw(state, screen, best, time, shotCam, orbitYaw) {
     const dt = Math.min(Math.max(time - lastTime, 0.001), 0.1);
     lastTime = time;
@@ -565,22 +561,22 @@ export function createRenderer(canvas, state) {
     // Clouds drift.
     for (const c of clouds) {
       c.position.x += dt * 6;
-      if (c.position.x > WORLD.size + 200) c.position.x = -200;
+      if (c.position.x > MAP.size + 200) c.position.x = -200;
     }
 
     // Cars, police, pedestrians, coins, bullets.
-    syncList(state.cars, carMeshes,
-      (car) => buildCar(trafficColors[car.color % trafficColors.length], false),
+    syncMeshes(state.cars, carMeshes,
+      (car) => assembleCar(trafficColors[car.color % trafficColors.length], false),
       (mesh, car) => {
         mesh.position.set(car.x, 0, car.y);
         mesh.rotation.y = -car.angle;
         // The player's car always reads as theirs: red, whatever it was.
         mesh.userData.body.material.color.setHex(
-          car.driver === 'player' ? PALETTE.playerCar : trafficColors[car.color % trafficColors.length],
+          car.driver === 'player' ? HUES.playerCar : trafficColors[car.color % trafficColors.length],
         );
       });
-    syncList(state.police, copMeshes,
-      () => buildCar(0, true),
+    syncMeshes(state.police, copMeshes,
+      () => assembleCar(0, true),
       (mesh, cop) => {
         mesh.position.set(cop.x, cop.shake > 0 ? Math.sin(time * 40) * 2 : 0, cop.y);
         mesh.rotation.y = -cop.angle;
@@ -608,19 +604,19 @@ export function createRenderer(canvas, state) {
           mesh.userData.barrier = true;
         }
       });
-    syncList(state.peds, pedMeshes,
-      (ped) => buildPerson(PALETTE.pedShirts[ped.color % PALETTE.pedShirts.length], skinTones[ped.color % skinTones.length]),
+    syncMeshes(state.peds, pedMeshes,
+      (ped) => assemblePerson(HUES.pedShirts[ped.color % HUES.pedShirts.length], skinTones[ped.color % skinTones.length]),
       (mesh, ped) => {
         mesh.position.set(ped.x, Math.abs(Math.sin(ped.walk)) * 2, ped.y);
         mesh.rotation.y = -ped.angle;
       });
-    syncList(state.cash, coinMeshes,
+    syncMeshes(state.cash, coinMeshes,
       () => new THREE.Mesh(coinGeo, coinMat),
       (mesh, c) => {
         mesh.position.set(c.x, 8 + Math.sin(c.bob) * 3, c.y);
         mesh.rotation.y = time * 2;
       });
-    syncList(state.bullets, bulletMeshes,
+    syncMeshes(state.bullets, bulletMeshes,
       () => new THREE.Mesh(bulletGeo, bulletMat),
       (mesh, b) => {
         mesh.position.set(b.x, 14, b.y);
@@ -630,7 +626,7 @@ export function createRenderer(canvas, state) {
     // Player on foot.
     playerMesh.visible = !inCar;
     if (!inCar) {
-      playerMesh.position.set(p.x, Math.abs(Math.sin(time * 8)) * 0, p.y);
+      playerMesh.position.set(p.x, 0, p.y);
       playerMesh.rotation.y = -p.angle;
       if (p.invuln > 0) playerMesh.visible = Math.floor(p.invuln * 10) % 2 === 1;
     }
@@ -653,18 +649,18 @@ export function createRenderer(canvas, state) {
       heliGroup.visible = false;
     }
 
-    // Mission beam and diamond.
+    // Job beam and diamond.
     if (state.missionActive) {
-      const m = MISSIONS[state.missionIndex];
+      const job = JOBS[state.missionIndex];
       beam.visible = true;
       diamond.visible = true;
       ring.visible = true;
-      beam.position.set(m.target.x, 110, m.target.y);
-      diamond.position.set(m.target.x, 70 + Math.sin(time * 3) * 8, m.target.y);
+      beam.position.set(job.goal.x, 110, job.goal.y);
+      diamond.position.set(job.goal.x, 70 + Math.sin(time * 3) * 8, job.goal.y);
       diamond.rotation.y = time * 2;
       const pulse = 1 + Math.sin(time * 4) * 0.12;
       ring.scale.set(pulse, pulse, 1);
-      ring.position.set(m.target.x, 1.5, m.target.y);
+      ring.position.set(job.goal.x, 1.5, job.goal.y);
     } else {
       beam.visible = false;
       diamond.visible = false;
@@ -677,7 +673,7 @@ export function createRenderer(canvas, state) {
       camera.lookAt(shotCam.look[0], shotCam.look[1], shotCam.look[2]);
       camPos.copy(camera.position);
       camLook.set(shotCam.look[0], shotCam.look[1], shotCam.look[2]);
-    } else if (screen === SCREEN_TITLE) {
+    } else if (screen === VIEW_TITLE) {
       orbit += dt * 0.05;
       const cx = 1600 + Math.cos(orbit) * 1100;
       const cz = 1600 + Math.sin(orbit) * 1100;
@@ -701,22 +697,22 @@ export function createRenderer(canvas, state) {
     renderer.render(scene, camera);
 
     // HUD and panels.
-    updateHud(state, screen, best);
-    drawMinimap(state);
-    if (screen === SCREEN_TITLE) {
-      showPanel('VICE BAY', [
+    refreshHud(state, screen, best);
+    paintMap(state);
+    if (screen === VIEW_TITLE) {
+      openPanel('VICE BAY', [
         'An open-world crime game in the spirit of GTA —',
         'our own city, our own story, nothing borrowed.',
         'Steal cars, outrun the Bay PD and the Kestrel, run Mara\'s 10 jobs.',
         `Best cash so far: $${best}`,
         '',
       ], 'Press Enter to start  ·  C to continue', '#ffd23f');
-    } else if (screen === SCREEN_PAUSED) {
-      showPanel('Paused', ['The city waits for you.'], 'Press P to resume');
-    } else if (screen === SCREEN_OVER) {
-      showPanel('WASTED', [`Cash: $${state.cashAmount}`, `Best: $${best}`], 'Press Enter to play again', '#ff5c5c');
-    } else if (screen === SCREEN_BUSTED) {
-      showPanel('BUSTED', ['The Bay PD caught Rico Vale.', `Cash: $${state.cashAmount}`, `Best: $${best}`], 'Press Enter to play again', '#ff5c5c');
+    } else if (screen === VIEW_PAUSED) {
+      openPanel('Paused', ['The city waits for you.'], 'Press P to resume');
+    } else if (screen === VIEW_OVER) {
+      openPanel('WASTED', [`Cash: $${state.cashAmount}`, `Best: $${best}`], 'Press Enter to play again', '#ff5c5c');
+    } else if (screen === VIEW_BUSTED) {
+      openPanel('BUSTED', ['The Bay PD caught Rico Vale.', `Cash: $${state.cashAmount}`, `Best: $${best}`], 'Press Enter to play again', '#ff5c5c');
     } else {
       panelEl.style.display = 'none';
     }

@@ -1,99 +1,107 @@
-// Keyboard and pointer input for Vice Bay. Held keys give movement and
-// steering; one-shot presses (start, pause, steal, punch, shoot, mute) are
-// queued as bit flags and taken once by the loop, so a press between two
-// frames is never lost and never counted twice. Dragging the mouse orbits the
-// chase camera; a short click fires the pistol on foot.
+// Keyboard and pointer controls for Vice Bay. Held keys give movement and
+// steering; one-shot presses (start, pause, steal, punch, shoot, mute,
+// radio, continue) are queued as bit flags and drained once by the loop, so
+// a press between two frames is never lost and never counted twice.
+// Dragging the mouse orbits the chase camera; a short click fires the
+// pistol on foot.
 
-export const ACTION_CONFIRM = 1;
-export const ACTION_PAUSE = 2;
-export const ACTION_ENTER = 4;
-export const ACTION_PUNCH = 8;
-export const ACTION_MUTE = 16;
-export const ACTION_CONTINUE = 32;
-export const ACTION_SHOOT = 64;
-export const ACTION_RADIO = 128;
+export const ACT_CONFIRM = 1;
+export const ACT_PAUSE = 2;
+export const ACT_ENTER = 4;
+export const ACT_PUNCH = 8;
+export const ACT_MUTE = 16;
+export const ACT_CONTINUE = 32;
+export const ACT_SHOOT = 64;
+export const ACT_RADIO = 128;
 
-const LEFT = new Set(['ArrowLeft', 'KeyA']);
-const RIGHT = new Set(['ArrowRight', 'KeyD']);
-const UP = new Set(['ArrowUp', 'KeyW']);
-const DOWN = new Set(['ArrowDown', 'KeyS']);
-const CONFIRM = new Set(['Space', 'Enter']);
-const PAUSE = new Set(['KeyP', 'Escape']);
+const GO_LEFT = ['ArrowLeft', 'KeyA'];
+const GO_RIGHT = ['ArrowRight', 'KeyD'];
+const GO_UP = ['ArrowUp', 'KeyW'];
+const GO_DOWN = ['ArrowDown', 'KeyS'];
+const CONFIRM_KEYS = ['Space', 'Enter'];
+const PAUSE_KEYS = ['KeyP', 'Escape'];
 
-export function createInput(target) {
-  let left = false;
-  let right = false;
-  let up = false;
-  let down = false;
-  let space = false;
-  let actions = 0;
-  let orbitDx = 0;
-  let downX = 0;
-  let downY = 0;
+/** Map a key code to its one-shot action, or 0 for held keys. */
+function pressAction(code) {
+  if (CONFIRM_KEYS.includes(code)) return ACT_CONFIRM;
+  if (PAUSE_KEYS.includes(code)) return ACT_PAUSE;
+  if (code === 'KeyE') return ACT_ENTER;
+  if (code === 'KeyF') return ACT_PUNCH;
+  if (code === 'KeyM') return ACT_MUTE;
+  if (code === 'KeyR') return ACT_RADIO;
+  if (code === 'KeyC') return ACT_CONTINUE;
+  return 0;
+}
+
+export function bindControls(target) {
+  const held = { left: false, right: false, up: false, down: false, space: false };
+  let queued = 0;
+  let orbitPx = 0;
+  let dragStartX = 0;
+  let dragStartY = 0;
   let dragging = false;
 
+  function setHeld(code, value) {
+    if (GO_LEFT.includes(code)) held.left = value;
+    else if (GO_RIGHT.includes(code)) held.right = value;
+    else if (GO_UP.includes(code)) held.up = value;
+    else if (GO_DOWN.includes(code)) held.down = value;
+    else if (code === 'Space') held.space = value;
+  }
+
   window.addEventListener('keydown', (event) => {
-    if (LEFT.has(event.code)) left = true;
-    else if (RIGHT.has(event.code)) right = true;
-    else if (UP.has(event.code)) up = true;
-    else if (DOWN.has(event.code)) down = true;
-    else if (CONFIRM.has(event.code)) { if (event.code === 'Space') space = true; if (!event.repeat) actions |= ACTION_CONFIRM; }
-    else if (PAUSE.has(event.code)) { if (!event.repeat) actions |= ACTION_PAUSE; }
-    else if (event.code === 'KeyE') { if (!event.repeat) actions |= ACTION_ENTER; }
-    else if (event.code === 'KeyF') { if (!event.repeat) actions |= ACTION_PUNCH; }
-    else if (event.code === 'KeyM') { if (!event.repeat) actions |= ACTION_MUTE; }
-    else if (event.code === 'KeyR') { if (!event.repeat) actions |= ACTION_RADIO; }
-    else if (event.code === 'KeyC') { if (!event.repeat) actions |= ACTION_CONTINUE; }
-    else return;
+    if (GO_LEFT.includes(event.code) || GO_RIGHT.includes(event.code)
+      || GO_UP.includes(event.code) || GO_DOWN.includes(event.code)
+      || event.code === 'Space') {
+      setHeld(event.code, true);
+    } else {
+      const action = pressAction(event.code);
+      if (!action || event.repeat) return;
+      queued |= action;
+    }
     event.preventDefault();
   });
-  window.addEventListener('keyup', (event) => {
-    if (LEFT.has(event.code)) left = false;
-    else if (RIGHT.has(event.code)) right = false;
-    else if (UP.has(event.code)) up = false;
-    else if (DOWN.has(event.code)) down = false;
-    else if (event.code === 'Space') space = false;
-  });
+  window.addEventListener('keyup', (event) => setHeld(event.code, false));
   // A key released while the tab is hidden never sends keyup: let go on blur.
   window.addEventListener('blur', () => {
-    left = false; right = false; up = false; down = false;
+    held.left = false; held.right = false; held.up = false; held.down = false; held.space = false;
   });
   target.addEventListener('pointerdown', (event) => {
-    actions |= ACTION_CONFIRM;
+    queued |= ACT_CONFIRM;
     dragging = true;
-    downX = event.clientX;
-    downY = event.clientY;
+    dragStartX = event.clientX;
+    dragStartY = event.clientY;
   });
   window.addEventListener('pointermove', (event) => {
-    if (!dragging) return;
-    orbitDx += event.movementX || 0;
+    if (dragging) orbitPx += event.movementX || 0;
   });
   window.addEventListener('pointerup', (event) => {
     if (!dragging) return;
     dragging = false;
-    const moved = Math.abs(event.clientX - downX) + Math.abs(event.clientY - downY);
-    if (moved < 6) actions |= ACTION_SHOOT;
+    const moved = Math.abs(event.clientX - dragStartX) + Math.abs(event.clientY - dragStartY);
+    if (moved < 6) queued |= ACT_SHOOT;
   });
 
   return {
     /** -1..1 on each axis, for walking. */
-    moveX() { return (right ? 1 : 0) - (left ? 1 : 0); },
-    moveY() { return (down ? 1 : 0) - (up ? 1 : 0); },
-    /** Driving: throttle 1 forward, -1 brake/reverse; steer -1..1. */
-    throttle() { return (up ? 1 : 0) - (down ? 1 : 0); },
-    steer() { return (right ? 1 : 0) - (left ? 1 : 0); },
+    walkX() { return (held.right ? 1 : 0) - (held.left ? 1 : 0); },
+    walkY() { return (held.down ? 1 : 0) - (held.up ? 1 : 0); },
+    /** Driving: 1 forward, -1 brake/reverse. */
+    gas() { return (held.up ? 1 : 0) - (held.down ? 1 : 0); },
+    /** Driving: -1..1 steering. */
+    wheel() { return (held.right ? 1 : 0) - (held.left ? 1 : 0); },
     /** Space held: handbrake while driving. */
-    handbrake() { return space; },
+    brake() { return held.space; },
     /** Horizontal mouse-drag distance since the last call, in pixels. */
-    takeOrbit() {
-      const taken = orbitDx;
-      orbitDx = 0;
+    orbitDelta() {
+      const taken = orbitPx;
+      orbitPx = 0;
       return taken;
     },
-    /** The one-shot presses since the last call, as ACTION_* flags. */
-    takeActions() {
-      const taken = actions;
-      actions = 0;
+    /** The one-shot presses since the last call, as ACT_* flags. */
+    drain() {
+      const taken = queued;
+      queued = 0;
       return taken;
     },
   };
