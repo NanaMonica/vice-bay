@@ -1,40 +1,65 @@
-# Vice Bay
+# VICE BAY — an open-world crime game
 
-[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-[![rank](https://make.fun/badge/gta6-01/NanaMonica/vice-bay/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-[![reward](https://make.fun/badge/gta6-01/NanaMonica/vice-bay/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
-
-A 3D open-world crime game built with three.js (vendored under `game/vendor/`) for make.fun's ["Make GTA 6" bounty](https://make.fun/bounty/gta6-01) (gta6-01).
-
-You are Rico Vale, a wheelman working for Mara in Vice Bay — a fictional sun-soaked city at golden hour, with ten named districts from Coral Beach to Old Docks. Steal cars, outrun the Bay PD as your wanted level climbs, and work through 10 story missions, from your first stolen car to the five-star Bay King finale.
-
-## What's in the city
-
-- **10 story missions for Mara** — races, heists, escapes, and the Kestrel hunt, with cash rewards and a timer on most jobs.
-- **Wanted system** — 1–5 stars. At 3 stars the VBPD Air-1 "Kestrel" helicopter hunts you from above with a searchlight; at 4 stars the Bay PD parks cruisers across the road ahead.
-- **Respect ranks** — Rookie → Hustler → Wheelman → Kingpin → Bay King. Higher respect tunes your car at Sunset Garage (stage 2 +12%, stage 3 +25% speed).
-- **Three radio stations** — Bay 98.5 FM, Vice Wave 104.3, Palm Talk 88.1. Press R to switch; all music is synthesized live with WebAudio, no audio files.
-- **A living city** — traffic, pedestrians, cash pickups, beach and marina, towers with lit windows, long golden-hour shadows, and a live minimap that shows the district you're in, police, the helicopter, and your mission target.
+A 3D open-world game in the spirit of GTA 6, built with three.js (vendored
+under `game/vendor/`). Static files only: open `game/index.html` in desktop
+Chrome and play — no network, no build step.
 
 ## Play
 
-```sh
-node serve.ts
+You are **Mara** of the **Vale Crew**, working ten story jobs across a
+golden-hour city of ~140 towers, ten named districts, traffic and
+pedestrians. Steal cars, outrun the VBPD, and take the crown.
+
+- **WASD** move / drive · **E** steal or exit a car · **F** punch
+- **Click** shoot · **Shift** run · **R** change radio station
+- **G** buy a Sunset Garage upgrade · **P** pause · **M** mute
+
+## Systems
+
+- **Wanted 0–5 stars** — stealing, hitting and shooting raise the heat;
+  it cools when you lay low. Police cruisers chase along the roads and
+  ram you; at 3 stars **VBPD Air-1 "Kestrel"** hunts you from above with
+  a searchlight; at 4 stars a **roadblock** seals the road ahead. Every
+  unit is named on the HUD.
+- **10 story missions** — from *First Drop* to the finale *Bay King*
+  ($1,000, wanted 5). Finish a job to earn cash and drop a star.
+- **Progression** — respect ranks Rookie → Hustler → Wheelman → Kingpin →
+  Bay King, and Sunset Garage stages that tune your cars +12% / +25% /
+  +40%.
+- **Three radio stations** (Bay 98.5 FM, Vice Wave 104.3, Palm Talk 88.1),
+  synthesized engine hum, sirens and gunshots — all WebAudio, no files.
+- **HUD** with cash, wanted stars, health, mission + timer, speed,
+  district name, rank, radio, garage, and a live minimap. Start, pause,
+  busted and win screens; progress saves to localStorage.
+
+## Layout
+
+```
+game/
+  index.html            the page: HUD, screens, three.js + main.js
+  vendor/three.min.js   three.js r149, vendored
+  src/
+    random.js           seeded PRNG (deterministic city + shots)
+    config.js           tuning, missions, ranks, garage, radio
+    districts.js        the ten named districts
+    input.js            keyboard + mouse state
+    audio.js            WebAudio synth: engine, siren, radio
+    world.js            city, player, cars, police, missions (no rendering)
+    render.js           three.js scene, golden-hour light, minimap
+    shots.js            Playwright screenshot staging
+    main.js             game loop, HUD, screens, save
+main.ts                 the entrypoint: copies game/ + screenshots/ to
+                        /output and writes dossier.json
+serve.ts                static dev server on http://localhost:8080
 ```
 
-Then open http://localhost:8080 in a desktop browser.
+## Develop
 
-| Key | Action |
-| --- | --- |
-| WASD / arrows | Walk / drive |
-| E | Steal (or exit) a car |
-| F | Punch |
-| Mouse click | Shoot |
-| Space | Handbrake |
-| R | Change radio station |
-| Drag mouse | Orbit the camera |
-| P | Pause |
-| M | Mute |
-| C | Continue your save |
+```sh
+node serve.ts            # play at http://localhost:8080
+# screenshots: ?shot=chase|drive|mission|heist (1280x720)
+```
 
-Progress (cash, mission, best cash) saves to localStorage. All art, sound, city, characters and story are original — no assets from Rockstar Games.
+## License
+
+MIT — see LICENSE.

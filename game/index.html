@@ -1,81 +1,120 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
-<title>Vice Bay — Open-World Crime Game</title>
+<title>VICE BAY — Open World</title>
 <style>
-  :root {
-    --ink: #f2f5f8;
-    --ink-dim: #9aa5b5;
-    --ink-soft: #d7dee8;
-    --cash: #37d67a;
-    --gold: #ffd23f;
-    --danger: #ff5c5c;
-    --panel-bg: rgba(10, 14, 22, 0.72);
-    --panel-solid: rgba(12, 18, 28, 0.88);
-    --shadow: 0 2px 4px rgba(0, 0, 0, 0.6);
-  }
-  html, body { margin: 0; height: 100%; overflow: hidden; background: #0d1520; }
-  #game { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #1a1210; font-family: 'Segoe UI', Arial, sans-serif; }
+  #game-canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  .hidden { display: none !important; }
 
-  /* Read aloud, never shown: the status line screen readers announce. */
-  #status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  /* --- HUD --- */
+  #hud { position: fixed; inset: 0; pointer-events: none; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,.8); z-index: 5; }
+  #top-left { position: absolute; top: 14px; left: 16px; font-size: 15px; line-height: 1.5; }
+  #cash { font-size: 30px; font-weight: 800; color: #7dff9a; }
+  #stars { font-size: 26px; letter-spacing: 4px; color: #ffd24d; }
+  #stars.wanted-hot { color: #ff5347; }
+  #health-bar { width: 180px; height: 10px; background: rgba(0,0,0,.55); border: 1px solid rgba(255,255,255,.5); margin-top: 4px; }
+  #health-fill { height: 100%; width: 100%; background: #2fae5f; }
+  #mission-box { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); text-align: center; background: rgba(0,0,0,.5); padding: 8px 18px; border-radius: 6px; border-left: 4px solid #ffd24d; }
+  #mission-name { font-size: 18px; font-weight: 700; }
+  #mission-timer { font-size: 22px; font-weight: 800; color: #ffd24d; }
+  #top-right { position: absolute; top: 14px; right: 16px; text-align: right; font-size: 14px; line-height: 1.55; }
+  #speed { font-size: 34px; font-weight: 800; }
+  #district { font-size: 17px; font-weight: 700; color: #ffd24d; }
+  #minimap { position: absolute; right: 16px; bottom: 16px; width: 200px; height: 200px; border: 2px solid rgba(255,255,255,.65); border-radius: 4px; background: #101018; }
+  #bottom-left { position: absolute; left: 16px; bottom: 16px; font-size: 13px; line-height: 1.6; background: rgba(0,0,0,.45); padding: 8px 12px; border-radius: 6px; }
+  #message { position: absolute; left: 50%; bottom: 110px; transform: translateX(-50%); font-size: 17px; font-weight: 600; background: rgba(0,0,0,.6); padding: 8px 16px; border-radius: 6px; max-width: 80%; text-align: center; }
+  #cop-toast { position: absolute; left: 50%; top: 110px; transform: translateX(-50%); font-size: 15px; font-weight: 700; color: #ff8a80; background: rgba(60,0,0,.55); padding: 6px 14px; border-radius: 6px; }
+  #heli { position: absolute; left: 50%; top: 148px; transform: translateX(-50%); font-size: 14px; font-weight: 700; color: #ffe14d; background: rgba(60,40,0,.55); padding: 5px 12px; border-radius: 6px; }
 
-  /* --- HUD overlay --- */
-  #hud { position: fixed; inset: 0; pointer-events: none; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); display: none; }
-  .panel { background: var(--panel-bg); border-radius: 10px; padding: 10px 16px; }
-  #hud-top { position: absolute; top: 12px; left: 12px; min-width: 380px; }
-  #hud-cash { font-size: 30px; font-weight: 800; color: var(--cash); line-height: 1.1; text-shadow: var(--shadow); }
-  #hud-mission { font-size: 15px; font-weight: 600; margin-top: 2px; text-shadow: 0 1px 3px rgba(0,0,0,0.7); }
-  #hud-rank { font-size: 13px; font-weight: 600; margin-top: 4px; color: var(--gold); text-shadow: 0 1px 3px rgba(0,0,0,0.7); }
-  #hud-timer { font-size: 14px; margin-top: 2px; color: var(--ink-dim); }
-  #wanted { position: absolute; top: 12px; right: 16px; text-align: right; }
-  #wanted-stars { font-size: 30px; letter-spacing: 2px; text-shadow: var(--shadow); }
-  #wanted-label { font-size: 14px; font-weight: 600; }
-  #health-wrap { position: absolute; top: 128px; left: 12px; width: 180px; height: 16px; background: rgba(0,0,0,0.5); border-radius: 8px; overflow: hidden; }
-  #health-fill { height: 100%; width: 100%; background: var(--cash); border-radius: 8px; }
-  #health-label { position: absolute; top: 128px; left: 200px; font-size: 13px; font-weight: 700; letter-spacing: 1px; text-shadow: 0 1px 3px rgba(0,0,0,0.7); }
-  #minimap { position: absolute; left: 12px; bottom: 12px; border: 2px solid rgba(242,245,248,0.5); border-radius: 8px; background: #16351f; }
-  #speed { position: absolute; right: 20px; bottom: 56px; font-size: 28px; font-weight: 800; text-shadow: var(--shadow); }
-  #hint { position: absolute; right: 20px; bottom: 28px; font-size: 13px; color: var(--ink-soft); text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
-  #toast { position: absolute; top: 118px; left: 50%; transform: translateX(-50%); background: var(--panel-solid); border-radius: 10px; padding: 10px 22px; font-size: 17px; font-weight: 600; display: none; white-space: nowrap; }
-
-  /* --- Full-screen panels (title, pause, wasted, busted) --- */
-  #panel { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; pointer-events: none; }
-  #panel-box { background: var(--panel-solid); border-radius: 14px; padding: 36px 48px 30px; text-align: center; max-width: 640px; }
-  #panel-title { font-size: 52px; font-weight: 800; color: var(--ink); margin: 0 0 14px; letter-spacing: 2px; }
-  #panel-lines p { margin: 4px 0; font-size: 20px; color: var(--ink-dim); }
-  #panel-prompt { margin: 22px 0 0; font-size: 22px; font-weight: 700; color: var(--cash); }
+  /* --- screens --- */
+  .screen { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(160deg, rgba(40,10,40,.88), rgba(20,10,30,.92)); color: #fff; z-index: 10; text-align: center; padding: 24px; }
+  .screen h1 { font-size: 72px; font-weight: 900; letter-spacing: 6px; color: #ffd24d; text-shadow: 0 0 24px rgba(255,180,60,.6), 0 4px 0 #7a2a5a; }
+  .screen h1 span { color: #ff5a8a; }
+  .screen h2 { font-size: 40px; font-weight: 800; letter-spacing: 3px; }
+  .screen p { font-size: 17px; line-height: 1.6; max-width: 620px; margin: 14px 0; color: #eee; }
+  .screen .sub { color: #ffd24d; font-weight: 700; letter-spacing: 2px; font-size: 15px; }
+  .screen button { pointer-events: auto; margin: 8px; padding: 13px 34px; font-size: 18px; font-weight: 700; border: none; border-radius: 8px; background: #ffd24d; color: #221133; cursor: pointer; }
+  .screen button:hover { background: #ffe14d; }
+  .screen button.secondary { background: #3a2a4a; color: #fff; }
+  .controls { font-size: 14px; line-height: 1.9; color: #ccc; margin-top: 10px; }
+  .controls b { color: #fff; }
 </style>
 </head>
 <body>
-<canvas id="game" aria-label="Vice Bay: an open-world crime game. Walk with WASD, steal cars with E, outrun the police, run missions for Mara."></canvas>
-<div id="hud">
-  <div id="hud-top" class="panel">
-    <div id="hud-cash">$0</div>
-    <div id="hud-mission">Free roam</div>
-    <div id="hud-rank"></div>
-    <div id="hud-timer"></div>
+<canvas id="game-canvas"></canvas>
+
+<div id="hud" class="hidden">
+  <div id="top-left">
+    <div id="cash">$0</div>
+    <div id="stars">☆☆☆☆☆</div>
+    <div id="health-bar"><div id="health-fill"></div></div>
   </div>
-  <div id="wanted">
-    <div id="wanted-stars">☆☆☆☆☆</div>
-    <div id="wanted-label">Clean</div>
+  <div id="mission-box" class="hidden">
+    <div id="mission-name"></div>
+    <div id="mission-timer"></div>
   </div>
-  <div id="health-wrap"><div id="health-fill"></div></div>
-  <div id="health-label">HEALTH</div>
-  <canvas id="minimap" width="220" height="150"></canvas>
-  <div id="speed"></div>
-  <div id="hint"></div>
-  <div id="toast"></div>
+  <div id="top-right">
+    <div id="speed"></div>
+    <div id="district">Downtown Vice</div>
+    <div>Rank: <span id="rank">Rookie</span></div>
+    <div>Radio: <span id="radio">Bay 98.5 FM</span></div>
+    <div>Garage: <span id="garage">Stock</span></div>
+  </div>
+  <div id="cop-toast" class="hidden"></div>
+  <div id="heli" class="hidden"></div>
+  <div id="message" class="hidden"></div>
+  <div id="bottom-left">
+    <b>WASD</b> move / drive &nbsp; <b>E</b> steal car &nbsp; <b>F</b> punch<br>
+    <b>Click</b> shoot &nbsp; <b>R</b> radio &nbsp; <b>G</b> garage &nbsp; <b>P</b> pause
+  </div>
+  <canvas id="minimap" width="200" height="200"></canvas>
 </div>
-<div id="panel"><div id="panel-box">
-  <h1 id="panel-title">VICE BAY</h1>
-  <div id="panel-lines"></div>
-  <p id="panel-prompt"></p>
-</div></div>
-<p id="status" role="status" aria-live="polite"></p>
+
+<div id="start-screen" class="screen">
+  <h1>VICE <span>BAY</span></h1>
+  <div class="sub">AN OPEN-WORLD CRIME STORY &middot; STARRING MARA OF THE VALE CREW</div>
+  <p>Sunset over Vice Bay. Ten jobs stand between Mara and the crown —
+  steal cars, outrun the VBPD, dodge Air-1 "Kestrel", and take the Bay
+  one mission at a time. Wanted stars bring cruisers, roadblocks and
+  the helicopter. Respect earns the throne.</p>
+  <div>
+    <button id="start-btn">START ENGINE</button>
+    <button id="continue-btn" class="secondary hidden">CONTINUE</button>
+  </div>
+  <div class="controls">
+    <b>WASD</b> move &amp; drive &nbsp;&middot;&nbsp; <b>E</b> steal / exit car &nbsp;&middot;&nbsp; <b>F</b> punch &nbsp;&middot;&nbsp; <b>Click</b> shoot<br>
+    <b>R</b> change radio &nbsp;&middot;&nbsp; <b>G</b> buy garage upgrade &nbsp;&middot;&nbsp; <b>Shift</b> run &nbsp;&middot;&nbsp; <b>P</b> pause &nbsp;&middot;&nbsp; <b>M</b> mute
+  </div>
+</div>
+
+<div id="pause-screen" class="screen hidden">
+  <h2>PAUSED</h2>
+  <p>Vice Bay waits for no one — except right now.</p>
+  <div>
+    <button id="resume-btn">RESUME</button>
+    <button id="quit-btn" class="secondary">SAVE &amp; QUIT</button>
+  </div>
+</div>
+
+<div id="busted-screen" class="screen hidden">
+  <h2>BUSTED</h2>
+  <p>The VBPD finally caught up with Mara. The Bay keeps its secrets —
+  and your cash: <span id="busted-cash">$0</span>.</p>
+  <button id="retry-btn">TRY AGAIN</button>
+</div>
+
+<div id="win-screen" class="screen hidden">
+  <h2>BAY KING</h2>
+  <p>Ten jobs. One crown. Mara owns Vice Bay now — every street, every
+  tower, every sunset. The Vale Crew runs this city.</p>
+  <button id="again-btn">PLAY AGAIN</button>
+</div>
+
 <script src="./vendor/three.min.js"></script>
 <script type="module" src="./src/main.js"></script>
 </body>

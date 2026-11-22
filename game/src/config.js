@@ -1,191 +1,179 @@
-// Vice Bay — every tuning number, colour and story job in one place.
-// The city is a 3200x3200 grid (x east, y south in world space; the
-// renderer turns y into the 3D z axis). All names, places and story are
-// invented for this game.
+// Vice Bay — tuning constants and the story mission list.
+// Nothing here is read from any other file: every number below is this
+// build's own design.
 
-export const VIEW = { width: 1280, height: 720 };
-export const MAP = { size: 3200, block: 320, road: 96 };
+// --- the city grid -------------------------------------------------------
+export const WORLD = {
+  size: 3200, // the map is size x size, x east, y south
+  block: 320, // one city block, edge to edge
+  road: 96, // road width
+  roadCenter: (k) => 160 + k * 320, // centre line of road k
+  blocks: 10,
+};
 
-/** One fixed simulation step, in seconds: 60 updates a second. */
-export const TICK = 1 / 60;
-
-export const HERO = {
+// --- the player ----------------------------------------------------------
+export const PLAYER = {
+  walkSpeed: 250,
+  runSpeed: 340,
   radius: 14,
-  walk: 240,
-  punchReach: 52,
-  punchWait: 0.45,
-  shootWait: 0.28,
-  shootReach: 520,
   health: 100,
+  punchRange: 46,
+  punchCooldown: 0.45,
+  shootCooldown: 0.28,
 };
 
-export const VEHICLE = {
-  length: 56,
-  width: 28,
-  accel: 430,
-  brake: 720,
-  reverse: 230,
-  top: 580,
-  topReverse: 170,
-  steer: 2.6,
+// --- cars ----------------------------------------------------------------
+export const CAR = {
+  accel: 420,
+  brake: 620,
+  reverseAccel: 260,
+  maxSpeed: 560,
+  maxReverse: 170,
+  steer: 2.1,
+  length: 64,
+  width: 30,
 };
 
-export const TRAFFIC_COUNT = 16;
-export const PED_COUNT = 28;
-export const COP_MAX = 5;
+export const TRAFFIC_CARS = 16;
+export const PEDESTRIANS = 28;
+export const POLICE_MAX = 5;
 
-export const HEAT = {
-  fadeDelay: 8,
-  fadeRate: 0.12,
+// --- wanted --------------------------------------------------------------
+export const WANTED = {
+  max: 5,
   steal: 1,
   hitPed: 1,
-  hitCar: 0.5,
-  shoot: 0.5,
-  max: 5,
+  hitCar: 1,
+  shoot: 1,
+  decayDelay: 6, // seconds of calm before the heat cools
+  decayRate: 0.22, // wanted points per second while cooling
 };
 
-/** The police helicopter: arrives at 3 stars, hunts from above. */
-export const HELI_CFG = {
-  minHeat: 3,
-  speed: 380,
-  height: 260,
-  offX: 220,
-  offY: -160,
-};
+// --- respect ranks ---------------------------------------------------------
+export const RANKS = ['Rookie', 'Hustler', 'Wheelman', 'Kingpin', 'Bay King'];
+export const RANK_CASH = [0, 400, 1000, 2200, 4000];
 
-/** Roadblock: at 4 stars the Bay PD parks cruisers across the road ahead. */
-export const BLOCKADE_CFG = {
-  minHeat: 4,
-  ahead: 380,
-  cars: 3,
-};
+// --- Sunset Garage ---------------------------------------------------------
+export const GARAGE = [
+  { stage: 0, name: 'Stock', cost: 0, speedBonus: 0 },
+  { stage: 1, name: 'Stage 1 — Tuned', cost: 250, speedBonus: 0.12 },
+  { stage: 2, name: 'Stage 2 — Supercharged', cost: 600, speedBonus: 0.25 },
+  { stage: 3, name: 'Stage 3 — Bay King Spec', cost: 1200, speedBonus: 0.4 },
+];
 
-/** Mara's ten story jobs, in order. `wheels` means the job needs a car;
- * `limit` is a time limit in seconds; `heat` is the wanted level the job
- * starts at. */
-export const JOBS = [
+// --- radio -----------------------------------------------------------------
+export const RADIO = [
+  { name: 'Bay 98.5 FM', style: 'Vice Wave', bpm: 96, scale: [0, 3, 5, 7, 10] },
+  { name: 'Vice Wave 104.3', style: 'Neon Synth', bpm: 118, scale: [0, 2, 4, 7, 9] },
+  { name: 'Palm Talk 88.1', style: 'Sunset Talk', bpm: 76, scale: [0, 5, 7, 12] },
+];
+
+// --- story missions --------------------------------------------------------
+// target: a road intersection inside the named district.
+// Mara works her way up the Vale Crew: five jobs of her own, then the
+// five jobs that make her name on the Bay.
+export const MISSIONS = [
   {
-    id: 'first-wheels',
-    title: 'First Wheels',
-    text: 'Steal any car and bring it to Sunset Garage.',
-    goal: { x: 3040, y: 3040, place: 'Sunset Garage' },
-    pay: 150,
-    wheels: true,
+    name: 'First Drop',
+    brief: 'Mara, take the package to Palm Court. No detours, no cops.',
+    district: 'Palm Court',
+    target: { x: 800, y: 800 },
+    reward: 150,
+    timeLimit: 120,
+    startWanted: 0,
   },
   {
-    id: 'bay-run',
-    title: 'Bay Run',
-    text: 'Take the package to Marina Docks. Fast — the Bay PD is watching.',
-    goal: { x: 480, y: 480, place: 'Marina Docks' },
-    pay: 300,
-    wheels: true,
-    limit: 75,
+    name: 'Hot Wheels',
+    brief: 'A cherry-red Comet is parked in Bayview. Bring it to me.',
+    district: 'Bayview',
+    target: { x: 2720, y: 480 },
+    reward: 250,
+    timeLimit: 150,
+    startWanted: 1,
   },
   {
-    id: 'heat-escape',
-    title: 'Heat Escape',
-    text: 'You are at 3 stars. Reach the hideout at Palm Court without getting busted.',
-    goal: { x: 1760, y: 3040, place: 'Palm Court Hideout' },
-    pay: 500,
-    wheels: false,
-    heat: 3,
+    name: 'Heat Run',
+    brief: 'Cops are on us. Lose them and meet me down on Coral Beach.',
+    district: 'Coral Beach',
+    target: { x: 160, y: 2720 },
+    reward: 300,
+    timeLimit: 150,
+    startWanted: 2,
   },
   {
-    id: 'palm-heist',
-    title: 'Palm Heist',
-    text: 'Lift the takings from Bay National Bank, then get clear. Two stars and counting.',
-    goal: { x: 1120, y: 2080, place: 'Bay National Bank' },
-    pay: 400,
-    wheels: false,
-    limit: 90,
-    heat: 2,
+    name: 'Bayview Snap',
+    brief: 'The crew needs a photo of the Bayview penthouse. Get the shot.',
+    district: 'Bayview',
+    target: { x: 2720, y: 160 },
+    reward: 200,
+    timeLimit: 120,
+    startWanted: 0,
   },
   {
-    id: 'sunset-getaway',
-    title: 'Sunset Getaway',
-    text: 'Final job of the first run: four stars, one fast car, and the boat at Sunset Marina. Do not stop.',
-    goal: { x: 480, y: 3040, place: 'Sunset Marina' },
-    pay: 600,
-    wheels: true,
-    limit: 60,
-    heat: 4,
+    name: 'Strip Sprint',
+    brief: 'Race the Strip, end to end. Beat the clock, beat the traffic.',
+    district: 'Sunset Strip',
+    target: { x: 2400, y: 2560 },
+    reward: 400,
+    timeLimit: 100,
+    startWanted: 0,
   },
   {
-    id: 'neon-nights',
-    title: 'Neon Nights',
-    text: 'Street race: beat the clock to Neon Row. The Vale Crew is watching.',
-    goal: { x: 2400, y: 480, place: 'Neon Row' },
-    pay: 450,
-    wheels: true,
-    limit: 70,
-    heat: 1,
+    name: 'Neon Nights',
+    brief: 'Neon Row pays protection tonight. Collect from every corner.',
+    district: 'Neon Row',
+    target: { x: 1760, y: 1440 },
+    reward: 450,
+    timeLimit: 150,
+    startWanted: 1,
   },
   {
-    id: 'harbor-lights',
-    title: 'Harbor Lights',
-    text: 'Run the package to Harbor Heights Pier before the Bay PD locks the bridges.',
-    goal: { x: 2720, y: 480, place: 'Harbor Heights Pier' },
-    pay: 550,
-    wheels: true,
-    limit: 80,
+    name: 'Harbor Lights',
+    brief: 'A shipment lands at Harbor Heights. Be there before the feds.',
+    district: 'Harbor Heights',
+    target: { x: 2560, y: 1440 },
+    reward: 500,
+    timeLimit: 150,
+    startWanted: 2,
   },
   {
-    id: 'vault-breaker',
-    title: 'Vault Breaker',
-    text: 'Second vault job: crack the Vice Bay Credit Union and get clear.',
-    goal: { x: 2080, y: 1120, place: 'Vice Bay Credit Union' },
-    pay: 700,
-    wheels: false,
-    limit: 75,
-    heat: 3,
+    name: 'Vault Breaker',
+    brief: 'The Downtown Vice bank vault. In, out, gone before the sirens.',
+    district: 'Downtown Vice',
+    target: { x: 1600, y: 480 },
+    reward: 750,
+    timeLimit: 180,
+    startWanted: 3,
   },
   {
-    id: 'kestrel-down',
-    title: 'Kestrel Down',
-    text: 'Air-1 Kestrel is overhead. Lose the chopper and reach the Palm Court hideout.',
-    goal: { x: 1760, y: 3040, place: 'Palm Court Hideout' },
-    pay: 800,
-    wheels: false,
-    limit: 90,
-    heat: 4,
+    name: 'Kestrel Down',
+    brief: 'VBPD Air-1 is hunting us over the Old Docks. End the hunt.',
+    district: 'Old Docks',
+    target: { x: 480, y: 800 },
+    reward: 850,
+    timeLimit: 180,
+    startWanted: 4,
   },
   {
-    id: 'bay-king',
-    title: 'Bay King',
-    text: 'Final job: five stars, one fast car, and the boat at Sunset Marina. Do not stop.',
-    goal: { x: 480, y: 3040, place: 'Sunset Marina' },
-    pay: 1000,
-    wheels: true,
-    limit: 75,
-    heat: 5,
+    name: 'Bay King',
+    brief: 'One last run through the Marina. Take the crown, Mara. All of it.',
+    district: 'Marina District',
+    target: { x: 480, y: 480 },
+    reward: 1000,
+    timeLimit: 240,
+    startWanted: 5,
   },
 ];
 
-/** Colours for the 3D city at golden hour: low orange sun, warm haze, lit windows. */
-export const HUES = {
-  sky: 0xff9e57,
-  fog: 0xf2a56b,
-  sun: 0xffc98a,
-  ground: 0x55703f,
-  sand: 0xd9b47a,
-  water: 0x3a7d99,
-  road: 0x2b2f38,
-  park: 0x2a7a4a,
-  tones: [0x8e6fb0, 0x5f8fb8, 0xb87a5a, 0x6a9a7a, 0xc9a86a, 0x7a7f8e],
-  traffic: [0x4fc3f7, 0xf2c94c, 0x9b7bb0, 0xe8e8e8, 0x7ad06a, 0xf08a3c, 0x38b6a6],
-  playerCar: 0xd92b2b,
-  police: 0xf2f5f8,
-  policeTrim: 0x1a2530,
-  player: 0xffd23f,
-  pedShirts: [0xe8e8e8, 0x4fc3f7, 0xf08a3c, 0x9b7bb0, 0x7ad06a, 0xf2c94c],
-  cash: 0x37d67a,
-  marker: 0x37d67a,
-  text: '#f2f5f8',
-  muted: '#9aa5b5',
-  star: '#ffd23f',
-  danger: '#ff5c5c',
+// --- palette ---------------------------------------------------------------
+export const PALETTE = {
+  sky: 0xff9a52,
+  fog: 0xffb37a,
+  sun: 0xffd9a0,
+  ground: 0x8a8f7a,
+  road: 0x3a3a40,
+  sand: 0xe8cf9a,
+  water: 0x2e7fa8,
+  carColors: [0xc0392b, 0x2980b9, 0xf1c40f, 0x27ae60, 0x8e44ad, 0xecf0f1, 0x2c3e50],
+  pedColors: [0xe74c3c, 0x3498db, 0xf39c12, 0x1abc9c, 0x9b59b6, 0xfd79a8],
 };
-
-/** Save keys: cash, jobs done, best cash (this browser only). */
-export const SAVE_KEY = 'vice-bay.save.v2';
-export const BEST_KEY = 'vice-bay.best.v2';

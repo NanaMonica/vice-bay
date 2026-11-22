@@ -1,217 +1,242 @@
-// Vice Bay boot and the one loop: input is read every frame, the world advances
-// in fixed 1/60 s steps, and the renderer paints what is there. The game moves
-// between title, play, paused, wasted and busted screens; jobs run in order,
-// cash, respect and garage upgrades save to localStorage, and the city keeps
-// living behind the title screen. Dragging the mouse orbits the chase camera;
-// R cycles the radio stations.
-//
-// ?seed=N fixes the city. ?shot=chase|drive|mission|heist (with &seed=N) stages
-// that scene instead of running the loop, paints it twice and sets
-// window.__shotReady for a screenshot.
-import { BEST_KEY, JOBS, SAVE_KEY, TICK } from './config.js';
-import { seededRandom } from './random.js';
-import { buildWorld, EV_CASH, EV_CAUGHT, EV_JOB, EV_PUNCH, EV_SHOT, EV_THEFT } from './world.js';
-import { ACT_CONFIRM, ACT_CONTINUE, ACT_ENTER, ACT_MUTE, ACT_PAUSE, ACT_PUNCH, ACT_RADIO, ACT_SHOOT, bindControls } from './input.js';
-import { makeSound } from './audio.js';
-import { buildRenderer, VIEW_BUSTED, VIEW_OVER, VIEW_PAUSED, VIEW_PLAY, VIEW_TITLE } from './render.js';
-import { stageScene } from './shots.js';
+// Vice Bay — the game loop, the HUD, the screens and the save.
+// Wires the world (rules), the renderer (three.js), input and audio
+// together. Nothing in here draws the city itself.
+import { GARAGE, MISSIONS } from './config.js';
+import { createAudio } from './audio.js';
+import { createInput } from './input.js';
+import { createRenderer } from './render.js';
+import { stageShot } from './shots.js';
+import {
+  EVENT_BUSTED,
+  EVENT_CASH,
+  EVENT_HIT,
+  EVENT_MISSION,
+  EVENT_PUNCH,
+  EVENT_SHOOT,
+  EVENT_STEAL,
+  EVENT_WIN,
+  createWorld,
+} from './world.js';
 
-/** The longest frame the loop catches up on; a longer stall is dropped. */
-const MAX_FRAME = 0.25;
-
+const SAVE_KEY = 'vicebay-save-v1';
 const params = new URLSearchParams(window.location.search);
-const shot = params.get('shot');
-const seedParam = Number.parseInt(params.get('seed') ?? '', 10);
-const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() * 4294967296);
+const seed = Number(params.get('seed') || 7);
+const shotName = params.get('shot');
 
-const canvas = document.getElementById('game');
-const status = document.getElementById('status');
-const world = buildWorld(seededRandom(seed));
-const renderer = buildRenderer(canvas, world.state);
-const sound = makeSound();
+const world = createWorld(seed);
+const { state } = world;
+const renderer = createRenderer(document.getElementById('game-canvas'), world);
+const input = createInput();
+const audio = createAudio();
+
+const $ = (id) => document.getElementById(id);
+const hud = $('hud');
+const minimap = $('minimap');
+const minimapCtx = minimap.getContext('2d');
+
+let screen = 'start'; // start | playing | paused | busted | won
+let lastTime = 0;
+let saveTimer = 0;
+
+function showOnly(id) {
+  for (const el of document.querySelectorAll('.screen')) el.classList.add('hidden');
+  if (id) $(id).classList.remove('hidden');
+}
+
+function saveGame() {
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify(world.snapshot()));
+  } catch {
+    // storage may be unavailable; the game still plays
+  }
+}
 
 function loadSave() {
   try {
-    const raw = window.localStorage.getItem(SAVE_KEY);
-    if (!raw) return null;
-    const save = JSON.parse(raw);
-    if (typeof save.cash !== 'number' || typeof save.mission !== 'number') return null;
-    return save;
+    const raw = localStorage.getItem(SAVE_KEY);
+    return raw ? JSON.parse(raw) : null;
   } catch {
     return null;
   }
 }
 
-function storeSave() {
-  try {
-    window.localStorage.setItem(SAVE_KEY, JSON.stringify({
-      cash: world.state.cashAmount,
-      mission: world.state.missionIndex,
-      allDone: world.state.allDone,
-    }));
-  } catch {
-    // Storage can be off: progress then lasts this visit only.
-  }
-}
-
-function loadBest() {
-  try {
-    return Number.parseInt(window.localStorage.getItem(BEST_KEY) ?? '0', 10) || 0;
-  } catch {
-    return 0;
-  }
-}
-
-function storeBest(value) {
-  try {
-    window.localStorage.setItem(BEST_KEY, String(value));
-  } catch {
-    // Best cash then lasts this visit only.
-  }
-}
-
-function runScene(name) {
-  const scene = stageScene(name, world);
-  let painted = 0;
-  function paint() {
-    renderer.draw(world.state, scene.view, scene.best, world.state.elapsed, scene.shotCam);
-    painted += 1;
-    if (painted < 2) requestAnimationFrame(paint);
-    else window.__shotReady = true;
-  }
-  requestAnimationFrame(paint);
-}
-
-function runLoop() {
-  const controls = bindControls(canvas);
-  let screen = VIEW_TITLE;
-  let best = loadBest();
-  let accumulator = 0;
-  let last = performance.now();
-  let time = 0;
-  let camOffset = 0;
-
-  function announce(message) {
-    status.textContent = message;
-  }
-
-  function startGame(continueSave) {
+function startPlaying(fromSave) {
+  audio.unlock();
+  audio.startRadio();
+  if (fromSave) {
+    const save = loadSave();
+    if (save) world.restore(save);
+    else world.startMission(0);
+  } else {
     world.reset();
-    const save = continueSave ? loadSave() : null;
-    if (save) {
-      world.state.cashAmount = save.cash;
-      if (save.mission < JOBS.length && !save.allDone) world.startJob(save.mission);
-      else if (save.allDone) world.state.allDone = true;
-    } else {
-      world.startJob(0);
-    }
-    accumulator = 0;
-    screen = VIEW_PLAY;
-    sound.unlock();
-    announce('Playing Vice Bay. Mara has a job for you.');
+    world.startMission(0);
   }
-
-  function endGame(busted) {
-    screen = busted ? VIEW_BUSTED : VIEW_OVER;
-    if (world.state.cashAmount > best) {
-      best = world.state.cashAmount;
-      storeBest(best);
-    }
-    storeSave();
-    sound.busted();
-    announce(busted ? `Busted. Cash $${world.state.cashAmount}.` : `Wasted. Cash $${world.state.cashAmount}.`);
-  }
-
-  function handlePresses(actions) {
-    if (actions & ACT_MUTE) {
-      const muted = sound.toggleMute();
-      announce(muted ? 'Sound off.' : 'Sound on.');
-    }
-    if (actions & ACT_RADIO && screen === VIEW_PLAY) {
-      const station = sound.nextStation();
-      world.state.radioStation = (world.state.radioStation + 1) % 3;
-      announce(`Radio: ${station}.`);
-    }
-    if (actions & ACT_CONFIRM && (screen === VIEW_TITLE || screen === VIEW_OVER || screen === VIEW_BUSTED)) {
-      startGame(false);
-    } else if (actions & ACT_CONTINUE && screen === VIEW_TITLE) {
-      startGame(true);
-    } else if (actions & ACT_PAUSE && screen === VIEW_PLAY) {
-      screen = VIEW_PAUSED;
-      announce('Paused.');
-    } else if (actions & (ACT_PAUSE | ACT_CONFIRM) && screen === VIEW_PAUSED) {
-      screen = VIEW_PLAY;
-      announce('Playing.');
-    }
-  }
-
-  function advance(actions) {
-    if (screen === VIEW_TITLE) {
-      world.step(TICK, { moveX: 0, moveY: 0, throttle: 0, steer: 0, brake: false, enter: false, punch: false, shoot: false });
-      return;
-    }
-    const events = world.step(TICK, {
-      moveX: controls.walkX(),
-      moveY: controls.walkY(),
-      throttle: controls.gas(),
-      steer: controls.wheel(),
-      brake: controls.brake(),
-      enter: Boolean(actions & ACT_ENTER),
-      punch: Boolean(actions & ACT_PUNCH),
-      shoot: Boolean(actions & ACT_SHOOT),
-    });
-    if (events & EV_CASH) sound.cash();
-    if (events & EV_PUNCH) sound.punch();
-    if (events & EV_SHOT) sound.shoot();
-    if (events & EV_THEFT) sound.steal();
-    if (events & EV_JOB) {
-      sound.job();
-      storeSave();
-      if (world.state.cashAmount > best) { best = world.state.cashAmount; storeBest(best); }
-    }
-    if (events & EV_CAUGHT) endGame(true);
-  }
-
-  function frame(now) {
-    requestAnimationFrame(frame);
-    const dt = Math.min((now - last) / 1000, MAX_FRAME);
-    last = now;
-    time += dt;
-    // Take the one-shot presses once per frame and share them: handlePresses
-    // owns confirm/pause/mute, advance owns enter/punch/shoot.
-    const actions = controls.drain();
-    camOffset += controls.orbitDelta() * 0.005;
-    handlePresses(actions);
-    if (screen === VIEW_TITLE || screen === VIEW_PLAY) {
-      accumulator += dt;
-      let first = true;
-      while (accumulator >= TICK && (screen === VIEW_TITLE || screen === VIEW_PLAY)) {
-        // One-shot presses count once per frame, not once per sub-step:
-        // a held Enter must not steal and exit the car in the same frame.
-        advance(first ? actions : actions & ~(ACT_ENTER | ACT_PUNCH | ACT_SHOOT));
-        first = false;
-        accumulator -= TICK;
-      }
-    } else {
-      accumulator = 0;
-    }
-    const car = world.state.player.inCar >= 0 ? world.state.cars[world.state.player.inCar] : null;
-    sound.update(car ? car.speed : 0, world.state.wanted, time, Boolean(world.state.heli));
-    const orbitYaw = camOffset === 0 ? undefined : world.state.player.angle + camOffset;
-    renderer.draw(world.state, screen, best, time, undefined, orbitYaw);
-  }
-
-  // Leaving the tab pauses a running game rather than letting the city run unseen.
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden && screen === VIEW_PLAY) {
-      screen = VIEW_PAUSED;
-      announce('Paused.');
-    }
-  });
-
-  announce('Vice Bay. Press Enter to start, C to continue your save.');
-  requestAnimationFrame(frame);
+  screen = 'playing';
+  hud.classList.remove('hidden');
+  showOnly(null);
 }
 
-if (shot) runScene(shot);
-else runLoop();
+function formatTime(seconds) {
+  const s = Math.max(0, Math.ceil(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+}
+
+function updateHud() {
+  const player = state.player;
+  const inCar = player.inCar >= 0 ? state.cars[player.inCar] : null;
+  $('cash').textContent = `$${state.cashAmount}`;
+  const stars = Math.floor(state.wanted);
+  $('stars').textContent = '★'.repeat(stars) + '☆'.repeat(5 - stars);
+  $('stars').className = stars > 0 ? 'wanted-hot' : '';
+  $('health-fill').style.width = `${Math.max(0, player.health)}%`;
+  $('health-fill').style.background = player.health > 50 ? '#2fae5f' : player.health > 25 ? '#f7c948' : '#e74c3c';
+  if (state.missionActive) {
+    const m = MISSIONS[state.missionIndex];
+    $('mission-name').textContent = `${m.name} — ${m.district}`;
+    $('mission-timer').textContent = formatTime(state.missionTime);
+    $('mission-box').classList.remove('hidden');
+  } else {
+    $('mission-box').classList.add('hidden');
+  }
+  const speed = inCar ? Math.abs(inCar.speed) : 0;
+  $('speed').textContent = inCar ? `${Math.round(speed * 0.16)} mph` : '';
+  $('district').textContent = world.district().name;
+  $('rank').textContent = world.respectRank();
+  $('radio').textContent = audio.radioStation().name;
+  $('garage').textContent = GARAGE[state.garageStage].name;
+  if (state.heli) {
+    $('heli').textContent = 'VBPD Air-1 "Kestrel" overhead';
+    $('heli').classList.remove('hidden');
+  } else {
+    $('heli').classList.add('hidden');
+  }
+  if (state.police.length > 0) {
+    $('cop-toast').textContent = `${state.police[0].callsign} on you — ${state.police.length} unit${state.police.length > 1 ? 's' : ''} pursuing`;
+    $('cop-toast').classList.remove('hidden');
+  } else {
+    $('cop-toast').classList.add('hidden');
+  }
+  if (state.messageTimer > 0) {
+    $('message').textContent = state.message;
+    $('message').classList.remove('hidden');
+  } else {
+    $('message').classList.add('hidden');
+  }
+  renderer.drawMinimap(minimapCtx, state, minimap.width, minimap.height);
+}
+
+function handleEvents(events) {
+  if (events & EVENT_SHOOT) audio.gunshot();
+  if (events & EVENT_PUNCH) audio.punch();
+  if (events & EVENT_STEAL) audio.steal();
+  if (events & EVENT_CASH) audio.cash();
+  if (events & EVENT_HIT) audio.punch();
+  if (events & EVENT_MISSION) {
+    audio.missionDone();
+    saveGame();
+  }
+  if (events & EVENT_BUSTED) {
+    audio.busted();
+    audio.stopRadio();
+    screen = 'busted';
+    $('busted-cash').textContent = `$${state.cashAmount}`;
+    showOnly('busted-screen');
+  }
+  if (events & EVENT_WIN) {
+    audio.win();
+    saveGame();
+    screen = 'won';
+    showOnly('win-screen');
+  }
+}
+
+function loop(time) {
+  requestAnimationFrame(loop);
+  const dt = Math.min(0.05, (time - lastTime) / 1000 || 0.016);
+  lastTime = time;
+  if (screen !== 'playing') {
+    // idle camera drift behind the start screen
+    renderer.render(state, dt);
+    return;
+  }
+  if (!shotName) {
+    // Live play: step the world. In screenshot mode the staged scene is
+    // frozen so the frame stays exactly as composed.
+    const events = world.step(dt, input.state);
+    state._moveX = input.state.moveX;
+    state._moveY = input.state.moveY;
+    input.consumeEdges();
+    handleEvents(events);
+    const inCar = state.player.inCar >= 0 ? state.cars[state.player.inCar] : null;
+    audio.setEngine(inCar ? Math.abs(inCar.speed) / 560 : 0, !!inCar);
+    audio.siren(state.wanted);
+    saveTimer += dt;
+    if (saveTimer > 5) {
+      saveTimer = 0;
+      saveGame();
+    }
+  }
+  renderer.render(state, dt);
+  updateHud();
+}
+
+// --- menus ---------------------------------------------------------------
+$('start-btn').addEventListener('click', () => startPlaying(false));
+$('continue-btn').addEventListener('click', () => startPlaying(true));
+$('retry-btn').addEventListener('click', () => startPlaying(false));
+$('again-btn').addEventListener('click', () => startPlaying(false));
+$('resume-btn').addEventListener('click', () => {
+  screen = 'playing';
+  showOnly(null);
+});
+$('quit-btn').addEventListener('click', () => {
+  saveGame();
+  screen = 'start';
+  hud.classList.add('hidden');
+  showOnly('start-screen');
+});
+
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyR' && screen === 'playing') {
+    const st = audio.nextStation();
+    world.setMessage(`Radio: ${st.name} — ${st.style}.`);
+  }
+  if (e.code === 'KeyG' && screen === 'playing') {
+    if (!world.buyGarageStage()) {
+      const next = GARAGE[state.garageStage + 1];
+      world.setMessage(next ? `Sunset Garage: need $${next.cost} for ${next.name}.` : 'Sunset Garage: fully maxed out.');
+    }
+  }
+  if (e.code === 'KeyM') {
+    audio.setMuted(!audio.isMuted());
+    world.setMessage(audio.isMuted() ? 'Sound muted.' : 'Sound on.');
+  }
+  if ((e.code === 'Escape' || e.code === 'KeyP') && (screen === 'playing' || screen === 'paused')) {
+    if (screen === 'playing') {
+      screen = 'paused';
+      showOnly('pause-screen');
+    } else {
+      screen = 'playing';
+      showOnly(null);
+    }
+  }
+});
+
+// --- boot ------------------------------------------------------------------
+if (loadSave()) $('continue-btn').classList.remove('hidden');
+
+if (shotName) {
+  // Screenshot mode: skip the menu, stage the scene, play.
+  audio.unlock();
+  world.startMission(0);
+  stageShot(world, shotName);
+  screen = 'playing';
+  hud.classList.remove('hidden');
+  showOnly(null);
+  updateHud();
+} else {
+  showOnly('start-screen');
+}
+
+window.__vicebay = { world, state, input, audio };
+requestAnimationFrame(loop);
