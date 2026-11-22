@@ -67,15 +67,32 @@ export function createAudio() {
     osc.stop(ctx.currentTime + dur);
   }
 
+  function noise(dur, vol) {
+    if (!ctx || muted) return;
+    const len = Math.floor(ctx.sampleRate * dur);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buf.getChannelData(0);
+    for (let i = 0; i < len; i += 1) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const gain = ctx.createGain();
+    gain.gain.value = vol || 0.2;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'highpass';
+    filter.frequency.value = 900;
+    src.connect(filter).connect(gain).connect(ctx.destination);
+    src.start();
+  }
+
   return {
     /** Call from a user gesture so the browser lets audio start. */
     unlock() { if (ensure() && ctx.state === 'suspended') ctx.resume(); },
     toggleMute() { muted = !muted; return muted; },
     isMuted() { return muted; },
-    /** Per-frame: speed 0..560, wanted 0..5, time in seconds. */
+    /** Per-frame: speed 0..580, wanted 0..5, time in seconds. */
     update(speed, wanted, time) {
       if (!ctx || muted) return;
-      engineGain.gain.value = speed > 20 ? 0.03 + Math.abs(speed) / 560 * 0.05 : 0;
+      engineGain.gain.value = speed > 20 ? 0.03 + Math.abs(speed) / 580 * 0.05 : 0;
       engineOsc.frequency.value = 50 + Math.abs(speed) * 0.16;
       if (wanted >= 2) {
         sirenGain.gain.value = 0.02;
@@ -86,6 +103,7 @@ export function createAudio() {
     },
     cash() { blip(880, 0.12, 'sine', 0.14); window.setTimeout(() => blip(1318, 0.18, 'sine', 0.14), 90); },
     punch() { blip(140, 0.1, 'square', 0.12); },
+    shoot() { noise(0.09, 0.22); blip(190, 0.08, 'square', 0.1); },
     steal() { blip(220, 0.15, 'sawtooth', 0.1); },
     mission() { [523, 659, 784].forEach((f, i) => window.setTimeout(() => blip(f, 0.2, 'triangle', 0.14), i * 110)); },
     busted() { [392, 330, 262].forEach((f, i) => window.setTimeout(() => blip(f, 0.3, 'sawtooth', 0.1), i * 160)); },

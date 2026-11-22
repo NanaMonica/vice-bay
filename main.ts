@@ -1,8 +1,10 @@
 // Vice Bay — the gta6-01 entry program (Node 22, standard library only).
 // The game is the plain static files in game/ beside this file: game/index.html
-// and its ES modules, no library and no network request. This program hands it
-// in: it copies game/ and screenshots/ to /output and writes /output/dossier.json,
-// the summary the judge reads, with the vendored make.fun library.
+// and its ES modules, plus the vendored three.js build in game/vendor/ (a
+// *.min.js file, listed as vendored and never counted as source). No network
+// request at runtime. This program hands it in: it copies game/ and
+// screenshots/ to /output and writes /output/dossier.json, the summary the
+// judge reads, with the vendored make.fun library.
 //
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:

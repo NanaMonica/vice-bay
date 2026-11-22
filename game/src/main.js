@@ -2,15 +2,15 @@
 // in fixed 1/60 s steps, and the renderer paints what is there. The game moves
 // between title, play, paused, wasted and busted screens; missions run in order,
 // cash and progress save to localStorage, and the city keeps living behind the
-// title screen.
+// title screen. Dragging the mouse orbits the chase camera.
 //
 // ?seed=N fixes the city. ?shot=chase|drive|mission|start (with &seed=N) stages
 // that scene instead of running the loop, paints it twice and sets
 // window.__shotReady for a screenshot.
 import { BEST_KEY, MISSIONS, SAVE_KEY, STEP } from './config.js';
 import { createRandom } from './random.js';
-import { createWorld, EVENT_BUSTED, EVENT_CASH, EVENT_MISSION, EVENT_PUNCH, EVENT_STEAL } from './world.js';
-import { ACTION_CONFIRM, ACTION_CONTINUE, ACTION_ENTER, ACTION_MUTE, ACTION_PAUSE, ACTION_PUNCH, createInput } from './input.js';
+import { createWorld, EVENT_BUSTED, EVENT_CASH, EVENT_MISSION, EVENT_PUNCH, EVENT_SHOOT, EVENT_STEAL } from './world.js';
+import { ACTION_CONFIRM, ACTION_CONTINUE, ACTION_ENTER, ACTION_MUTE, ACTION_PAUSE, ACTION_PUNCH, ACTION_SHOOT, createInput } from './input.js';
 import { createAudio } from './audio.js';
 import { createRenderer, SCREEN_BUSTED, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 import { stageShot } from './shots.js';
@@ -26,7 +26,7 @@ const seed = Number.isInteger(seedParam) ? seedParam : Math.floor(Math.random() 
 const canvas = document.getElementById('game');
 const status = document.getElementById('status');
 const world = createWorld(createRandom(seed));
-const renderer = createRenderer(canvas);
+const renderer = createRenderer(canvas, world.state);
 const audio = createAudio();
 
 function readSave() {
@@ -73,7 +73,7 @@ function runShot(name) {
   const scene = stageShot(name, world);
   let painted = 0;
   function paint() {
-    renderer.draw(world.state, scene.screen, scene.best, world.state.elapsed);
+    renderer.draw(world.state, scene.screen, scene.best, world.state.elapsed, scene.shotCam);
     painted += 1;
     if (painted < 2) requestAnimationFrame(paint);
     else window.__shotReady = true;
@@ -88,6 +88,7 @@ function runGame() {
   let accumulator = 0;
   let last = performance.now();
   let time = 0;
+  let camOffset = 0;
 
   function announce(message) {
     status.textContent = message;
@@ -140,7 +141,7 @@ function runGame() {
 
   function step(actions) {
     if (screen === SCREEN_TITLE) {
-      world.step(STEP, { moveX: 0, moveY: 0, throttle: 0, steer: 0, brake: false, enter: false, punch: false });
+      world.step(STEP, { moveX: 0, moveY: 0, throttle: 0, steer: 0, brake: false, enter: false, punch: false, shoot: false });
       return;
     }
     const events = world.step(STEP, {
@@ -151,9 +152,11 @@ function runGame() {
       brake: input.handbrake(),
       enter: Boolean(actions & ACTION_ENTER),
       punch: Boolean(actions & ACTION_PUNCH),
+      shoot: Boolean(actions & ACTION_SHOOT),
     });
     if (events & EVENT_CASH) audio.cash();
     if (events & EVENT_PUNCH) audio.punch();
+    if (events & EVENT_SHOOT) audio.shoot();
     if (events & EVENT_STEAL) audio.steal();
     if (events & EVENT_MISSION) {
       audio.mission();
@@ -169,8 +172,9 @@ function runGame() {
     last = now;
     time += dt;
     // Take the one-shot presses once per frame and share them: handleActions
-    // owns confirm/pause/mute, step owns enter/punch.
+    // owns confirm/pause/mute, step owns enter/punch/shoot.
     const actions = input.takeActions();
+    camOffset += input.takeOrbit() * 0.005;
     handleActions(actions);
     if (screen === SCREEN_TITLE || screen === SCREEN_PLAY) {
       accumulator += dt;
@@ -178,7 +182,7 @@ function runGame() {
       while (accumulator >= STEP && (screen === SCREEN_TITLE || screen === SCREEN_PLAY)) {
         // One-shot presses count once per frame, not once per sub-step:
         // a held Enter must not steal and exit the car in the same frame.
-        step(first ? actions : actions & ~(ACTION_ENTER | ACTION_PUNCH));
+        step(first ? actions : actions & ~(ACTION_ENTER | ACTION_PUNCH | ACTION_SHOOT));
         first = false;
         accumulator -= STEP;
       }
@@ -187,7 +191,8 @@ function runGame() {
     }
     const car = world.state.player.inCar >= 0 ? world.state.cars[world.state.player.inCar] : null;
     audio.update(car ? car.speed : 0, world.state.wanted, time);
-    renderer.draw(world.state, screen, best, time);
+    const orbitYaw = camOffset === 0 ? undefined : world.state.player.angle + camOffset;
+    renderer.draw(world.state, screen, best, time, undefined, orbitYaw);
   }
 
   // Leaving the tab pauses a running game rather than letting the city run unseen.

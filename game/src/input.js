@@ -1,7 +1,8 @@
 // Keyboard and pointer input for Vice Bay. Held keys give movement and
-// steering; one-shot presses (start, pause, steal, punch, mute) are queued as
-// bit flags and taken once by the loop, so a press between two frames is never
-// lost and never counted twice.
+// steering; one-shot presses (start, pause, steal, punch, shoot, mute) are
+// queued as bit flags and taken once by the loop, so a press between two
+// frames is never lost and never counted twice. Dragging the mouse orbits the
+// chase camera; a short click fires the pistol on foot.
 
 export const ACTION_CONFIRM = 1;
 export const ACTION_PAUSE = 2;
@@ -9,6 +10,7 @@ export const ACTION_ENTER = 4;
 export const ACTION_PUNCH = 8;
 export const ACTION_MUTE = 16;
 export const ACTION_CONTINUE = 32;
+export const ACTION_SHOOT = 64;
 
 const LEFT = new Set(['ArrowLeft', 'KeyA']);
 const RIGHT = new Set(['ArrowRight', 'KeyD']);
@@ -24,6 +26,10 @@ export function createInput(target) {
   let down = false;
   let space = false;
   let actions = 0;
+  let orbitDx = 0;
+  let downX = 0;
+  let downY = 0;
+  let dragging = false;
 
   window.addEventListener('keydown', (event) => {
     if (LEFT.has(event.code)) left = true;
@@ -50,8 +56,21 @@ export function createInput(target) {
   window.addEventListener('blur', () => {
     left = false; right = false; up = false; down = false;
   });
-  target.addEventListener('pointerdown', () => {
+  target.addEventListener('pointerdown', (event) => {
     actions |= ACTION_CONFIRM;
+    dragging = true;
+    downX = event.clientX;
+    downY = event.clientY;
+  });
+  window.addEventListener('pointermove', (event) => {
+    if (!dragging) return;
+    orbitDx += event.movementX || 0;
+  });
+  window.addEventListener('pointerup', (event) => {
+    if (!dragging) return;
+    dragging = false;
+    const moved = Math.abs(event.clientX - downX) + Math.abs(event.clientY - downY);
+    if (moved < 6) actions |= ACTION_SHOOT;
   });
 
   return {
@@ -63,6 +82,12 @@ export function createInput(target) {
     steer() { return (right ? 1 : 0) - (left ? 1 : 0); },
     /** Space held: handbrake while driving. */
     handbrake() { return space; },
+    /** Horizontal mouse-drag distance since the last call, in pixels. */
+    takeOrbit() {
+      const taken = orbitDx;
+      orbitDx = 0;
+      return taken;
+    },
     /** The one-shot presses since the last call, as ACTION_* flags. */
     takeActions() {
       const taken = actions;

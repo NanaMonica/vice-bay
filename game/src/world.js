@@ -1,7 +1,9 @@
 // Vice Bay rules and state, with no drawing and no browser in it: the city, the
 // player on foot and in cars, traffic, pedestrians, police, wanted level, cash,
-// missions and the story. step() advances one fixed step and returns what happened
-// as bit flags, so the caller can react without the world knowing about screens.
+// bullets, missions and the story. step() advances one fixed step and returns
+// what happened as bit flags, so the caller can react without the world
+// knowing about screens. Coordinates are x east, y south on a 3200x3200 map;
+// the renderer turns y into the 3D z axis.
 import { CAR, MISSIONS, PEDESTRIANS, PLAYER, POLICE_MAX, TRAFFIC_CARS, WANTED, WORLD } from './config.js';
 
 export const EVENT_CASH = 1;
@@ -10,6 +12,7 @@ export const EVENT_BUSTED = 4;
 export const EVENT_STEAL = 8;
 export const EVENT_HIT = 16;
 export const EVENT_PUNCH = 32;
+export const EVENT_SHOOT = 64;
 
 const TAU = Math.PI * 2;
 
@@ -60,6 +63,7 @@ function circleHitsRect(cx, cy, r, rect) {
 export function createWorld(random) {
   const buildings = [];
   const parks = [];
+  const trees = [];
   // One or two buildings per city block, plus a park in two blocks and the
   // marina in the north-west corner. The west strip is beach and water.
   for (let bx = 0; bx < 10; bx += 1) {
@@ -71,24 +75,32 @@ export function createWorld(random) {
       const w = WORLD.block - WORLD.road - 40;
       if (bx === 0 && by === 0) continue; // marina docks
       if (bx === 0) continue; // beach strip
-      if ((bx === 4 && by === 4) || (bx === 7 && by === 2)) { parks.push({ x: x0, y: y0, w, h: w }); continue; }
+      if ((bx === 4 && by === 4) || (bx === 7 && by === 2)) {
+        parks.push({ x: x0, y: y0, w, h: w });
+        for (let t = 0; t < 7; t += 1) trees.push({ x: x0 + 30 + random() * (w - 60), y: y0 + 30 + random() * (w - 60), palm: false, s: 0.8 + random() * 0.6 });
+        continue;
+      }
       const split = random() < 0.5;
       if (split) {
-        buildings.push({ x: x0, y: y0, w: w * 0.44, h: w, height: 26 + random() * 46, tone: Math.floor(random() * 4) });
-        buildings.push({ x: x0 + w * 0.56, y: y0, w: w * 0.44, h: w, height: 22 + random() * 52, tone: Math.floor(random() * 4) });
+        buildings.push({ x: x0, y: y0, w: w * 0.44, h: w, height: 26 + random() * 46, tone: Math.floor(random() * 6) });
+        buildings.push({ x: x0 + w * 0.56, y: y0, w: w * 0.44, h: w, height: 22 + random() * 52, tone: Math.floor(random() * 6) });
       } else {
-        buildings.push({ x: x0, y: y0, w, h: w * 0.62, height: 30 + random() * 60, tone: Math.floor(random() * 4) });
+        buildings.push({ x: x0, y: y0, w, h: w * 0.62, height: 30 + random() * 60, tone: Math.floor(random() * 6) });
       }
     }
   }
+  // Palms along the beach strip and the marina promenade.
+  for (let i = 0; i < 18; i += 1) trees.push({ x: 150 + random() * 30, y: 200 + i * 170, palm: true, s: 0.9 + random() * 0.5 });
+  for (let i = 0; i < 8; i += 1) trees.push({ x: 300 + i * 60, y: 130 + random() * 20, palm: true, s: 0.9 + random() * 0.4 });
 
-  const player = { x: 1600, y: 1600, angle: 0, health: PLAYER.health, punchCd: 0, inCar: -1, invuln: 0 };
+  const player = { x: 1600, y: 1600, angle: 0, health: PLAYER.health, punchCd: 0, shootCd: 0, inCar: -1, invuln: 0 };
   const cars = [];
   const peds = [];
   const police = [];
   const cash = [];
+  const bullets = [];
   const state = {
-    player, cars, peds, police, cash, buildings, parks,
+    player, cars, peds, police, cash, bullets, buildings, parks, trees,
     cashAmount: 0, wanted: 0, wantedTimer: 0, missionIndex: 0,
     missionTime: 0, missionActive: false, message: '', messageTimer: 0,
     elapsed: 0, busted: false, allDone: false, carHealth: 100,
@@ -104,7 +116,7 @@ export function createWorld(random) {
     cars.push({
       x: horizontal ? along : line, y: horizontal ? line : along,
       angle: horizontal ? (dir > 0 ? 0 : Math.PI) : (dir > 0 ? Math.PI / 2 : -Math.PI / 2),
-      speed: 110 + random() * 60, color: Math.floor(random() * 6),
+      speed: 110 + random() * 60, color: Math.floor(random() * 7),
       police: false, driver: 'traffic', turnCd: 2 + random() * 4,
     });
   }
@@ -114,7 +126,7 @@ export function createWorld(random) {
       const x = 100 + random() * (WORLD.size - 200);
       const y = 100 + random() * (WORLD.size - 200);
       if (onRoad(x, y)) continue;
-      peds.push({ x, y, angle: random() * TAU, speed: 40 + random() * 30, flee: 0, color: Math.floor(random() * 5) });
+      peds.push({ x, y, angle: random() * TAU, speed: 40 + random() * 30, flee: 0, color: Math.floor(random() * 6), walk: random() * TAU });
       return;
     }
   }
@@ -123,7 +135,7 @@ export function createWorld(random) {
     const angle = random() * TAU;
     const px = clamp(player.x + Math.cos(angle) * 700, 80, WORLD.size - 80);
     const py = clamp(player.y + Math.sin(angle) * 700, 80, WORLD.size - 80);
-    police.push({ x: px, y: py, angle: 0, speed: 0, color: 0, police: true, driver: 'police', siren: random() * TAU });
+    police.push({ x: px, y: py, angle: 0, speed: 0, color: 0, police: true, driver: 'police', siren: random() * TAU, shake: 0 });
   }
 
   function spawnCash(x, y) {
@@ -132,8 +144,8 @@ export function createWorld(random) {
 
   function reset() {
     player.x = 1600; player.y = 1600; player.angle = -Math.PI / 2;
-    player.health = PLAYER.health; player.punchCd = 0; player.inCar = -1; player.invuln = 0;
-    cars.length = 0; peds.length = 0; police.length = 0; cash.length = 0;
+    player.health = PLAYER.health; player.punchCd = 0; player.shootCd = 0; player.inCar = -1; player.invuln = 0;
+    cars.length = 0; peds.length = 0; police.length = 0; cash.length = 0; bullets.length = 0;
     for (let i = 0; i < TRAFFIC_CARS; i += 1) spawnTrafficCar();
     for (let i = 0; i < PEDESTRIANS; i += 1) spawnPed();
     state.cashAmount = 0; state.wanted = 0; state.wantedTimer = 0;
@@ -218,6 +230,7 @@ export function createWorld(random) {
     state.elapsed += dt;
     if (state.messageTimer > 0) state.messageTimer -= dt;
     if (player.punchCd > 0) player.punchCd -= dt;
+    if (player.shootCd > 0) player.shootCd -= dt;
     if (player.invuln > 0) player.invuln -= dt;
 
     // --- player movement ---
@@ -253,6 +266,48 @@ export function createWorld(random) {
           addWanted(0.25);
         }
       }
+    }
+
+    // --- shoot (on foot, mouse click) ---
+    if (input.shoot && player.shootCd <= 0 && !inCar) {
+      player.shootCd = PLAYER.shootCooldown;
+      bullets.push({
+        x: player.x + Math.cos(player.angle) * 24,
+        y: player.y + Math.sin(player.angle) * 24,
+        angle: player.angle, life: 0.7,
+      });
+      events |= EVENT_SHOOT;
+      addWanted(WANTED.shoot);
+    }
+    // Bullets fly straight and stop at the first thing they hit.
+    for (let i = bullets.length - 1; i >= 0; i -= 1) {
+      const b = bullets[i];
+      b.x += Math.cos(b.angle) * 950 * dt;
+      b.y += Math.sin(b.angle) * 950 * dt;
+      b.life -= dt;
+      let dead = b.life <= 0;
+      if (!dead) {
+        for (let j = peds.length - 1; j >= 0; j -= 1) {
+          if (dist(b.x, b.y, peds[j].x, peds[j].y) < 22) {
+            peds.splice(j, 1);
+            addWanted(WANTED.hitPed);
+            dead = true;
+            break;
+          }
+        }
+      }
+      if (!dead) {
+        for (const cop of police) {
+          if (dist(b.x, b.y, cop.x, cop.y) < 30) {
+            cop.speed *= 0.3;
+            cop.shake = 0.4;
+            addWanted(WANTED.hitCar);
+            dead = true;
+            break;
+          }
+        }
+      }
+      if (dead) bullets.splice(i, 1);
     }
 
     // --- enter / exit car ---
@@ -302,6 +357,7 @@ export function createWorld(random) {
     for (const car of cars) if (car.driver === 'traffic') carStep(car, dt, null);
 
     for (const ped of peds) {
+      ped.walk += dt * 6;
       if (ped.flee > 0) {
         ped.flee -= dt;
         const away = Math.atan2(ped.y - player.y, ped.x - player.x);
@@ -365,6 +421,7 @@ export function createWorld(random) {
     for (let i = police.length - 1; i >= 0; i -= 1) {
       const cop = police[i];
       cop.siren += dt * 6;
+      if (cop.shake > 0) cop.shake -= dt;
       const targetAngle = roadSteerAngle(cop.x, cop.y, player.x, player.y);
       let diff = targetAngle - cop.angle;
       while (diff > Math.PI) diff -= TAU;
@@ -422,5 +479,5 @@ export function createWorld(random) {
   }
 
   reset();
-  return { state, reset, step, startMission, setMessage, addWanted, buildings, parks };
+  return { state, reset, step, startMission, setMessage, addWanted, buildings, parks, trees };
 }
