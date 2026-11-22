@@ -1,5 +1,11 @@
 # VICE BAY — an open-world crime game
 
+[![make.fun · gta6-01](https://make.fun/badge/gta6-01.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![rank](https://make.fun/badge/gta6-01/NanaMonica/vice-bay/rank.svg)](https://make.fun/bounty/gta6-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+[![reward](https://make.fun/badge/gta6-01/NanaMonica/vice-bay/reward.svg)](https://make.fun/bounty/gta6-01?utm_source=github&utm_medium=readme&utm_campaign=gta6-01)
+
+Built for the [Make GTA 6 bounty](https://make.fun/bounty/gta6-01) on [make.fun](https://make.fun/bounty/gta6-01).
+
 A 3D open-world game in the spirit of GTA 6, built with three.js (vendored
 under `game/vendor/`). Static files only: open `game/index.html` in desktop
 Chrome and play — no network, no build step.
