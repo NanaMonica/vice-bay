@@ -1,6 +1,10 @@
 // Vice Bay sound: everything is synthesized with WebAudio, no audio files.
 // Engine hum follows the car's speed, a two-tone siren answers the wanted
-// level, and a short bass line loops under the city. M toggles mute.
+// level, the Kestrel's rotor thumps overhead at 3 stars, and three radio
+// stations loop their own bass lines under the city. M toggles mute, R
+// cycles the stations.
+import { RADIO_STATIONS } from './districts.js';
+
 export function createAudio() {
   let ctx = null;
   let muted = false;
@@ -8,11 +12,11 @@ export function createAudio() {
   let engineGain = null;
   let sirenOsc = null;
   let sirenGain = null;
+  let rotorOsc = null;
+  let rotorGain = null;
   let musicTimer = null;
   let beat = 0;
-
-  // A tiny original bass line (A minor, our own notes, no borrowed melody).
-  const BASS = [55, 0, 55, 65.41, 0, 55, 49, 0, 55, 0, 55, 65.41, 82.41, 73.42, 65.41, 0];
+  let station = 0;
 
   function ensure() {
     if (ctx) return true;
@@ -36,9 +40,18 @@ export function createAudio() {
     sirenGain.gain.value = 0;
     sirenOsc.connect(sirenGain).connect(ctx.destination);
     sirenOsc.start();
+    // The Kestrel's rotor: a low thump that only sounds while it hunts.
+    rotorOsc = ctx.createOscillator();
+    rotorOsc.type = 'square';
+    rotorOsc.frequency.value = 42;
+    rotorGain = ctx.createGain();
+    rotorGain.gain.value = 0;
+    rotorOsc.connect(rotorGain).connect(ctx.destination);
+    rotorOsc.start();
     musicTimer = window.setInterval(() => {
       if (muted || !ctx) return;
-      const note = BASS[beat % BASS.length];
+      const bass = RADIO_STATIONS[station % RADIO_STATIONS.length].bass;
+      const note = bass[beat % bass.length];
       beat += 1;
       if (!note) return;
       const osc = ctx.createOscillator();
@@ -89,8 +102,14 @@ export function createAudio() {
     unlock() { if (ensure() && ctx.state === 'suspended') ctx.resume(); },
     toggleMute() { muted = !muted; return muted; },
     isMuted() { return muted; },
-    /** Per-frame: speed 0..580, wanted 0..5, time in seconds. */
-    update(speed, wanted, time) {
+    /** Cycle to the next radio station; returns its name. */
+    nextStation() {
+      station = (station + 1) % RADIO_STATIONS.length;
+      beat = 0;
+      return RADIO_STATIONS[station].name;
+    },
+    /** Per-frame: speed 0..580, wanted 0..5, time in seconds, heli hunting. */
+    update(speed, wanted, time, heli) {
       if (!ctx || muted) return;
       engineGain.gain.value = speed > 20 ? 0.03 + Math.abs(speed) / 580 * 0.05 : 0;
       engineOsc.frequency.value = 50 + Math.abs(speed) * 0.16;
@@ -100,6 +119,7 @@ export function createAudio() {
       } else {
         sirenGain.gain.value = 0;
       }
+      rotorGain.gain.value = heli ? 0.02 + 0.008 * Math.sin(time * 25) : 0;
     },
     cash() { blip(880, 0.12, 'sine', 0.14); window.setTimeout(() => blip(1318, 0.18, 'sine', 0.14), 90); },
     punch() { blip(140, 0.1, 'square', 0.12); },

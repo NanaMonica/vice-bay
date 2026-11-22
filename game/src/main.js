@@ -1,16 +1,17 @@
 // Vice Bay boot and the one loop: input is read every frame, the world advances
 // in fixed 1/60 s steps, and the renderer paints what is there. The game moves
 // between title, play, paused, wasted and busted screens; missions run in order,
-// cash and progress save to localStorage, and the city keeps living behind the
-// title screen. Dragging the mouse orbits the chase camera.
+// cash, respect and garage upgrades save to localStorage, and the city keeps
+// living behind the title screen. Dragging the mouse orbits the chase camera;
+// R cycles the radio stations.
 //
-// ?seed=N fixes the city. ?shot=chase|drive|mission|start (with &seed=N) stages
+// ?seed=N fixes the city. ?shot=chase|drive|mission|heist (with &seed=N) stages
 // that scene instead of running the loop, paints it twice and sets
 // window.__shotReady for a screenshot.
 import { BEST_KEY, MISSIONS, SAVE_KEY, STEP } from './config.js';
 import { createRandom } from './random.js';
 import { createWorld, EVENT_BUSTED, EVENT_CASH, EVENT_MISSION, EVENT_PUNCH, EVENT_SHOOT, EVENT_STEAL } from './world.js';
-import { ACTION_CONFIRM, ACTION_CONTINUE, ACTION_ENTER, ACTION_MUTE, ACTION_PAUSE, ACTION_PUNCH, ACTION_SHOOT, createInput } from './input.js';
+import { ACTION_CONFIRM, ACTION_CONTINUE, ACTION_ENTER, ACTION_MUTE, ACTION_PAUSE, ACTION_PUNCH, ACTION_RADIO, ACTION_SHOOT, createInput } from './input.js';
 import { createAudio } from './audio.js';
 import { createRenderer, SCREEN_BUSTED, SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE } from './render.js';
 import { stageShot } from './shots.js';
@@ -126,6 +127,11 @@ function runGame() {
       const muted = audio.toggleMute();
       announce(muted ? 'Sound off.' : 'Sound on.');
     }
+    if (actions & ACTION_RADIO && screen === SCREEN_PLAY) {
+      const station = audio.nextStation();
+      world.state.radioStation = (world.state.radioStation + 1) % 3;
+      announce(`Radio: ${station}.`);
+    }
     if (actions & ACTION_CONFIRM && (screen === SCREEN_TITLE || screen === SCREEN_OVER || screen === SCREEN_BUSTED)) {
       startGame(false);
     } else if (actions & ACTION_CONTINUE && screen === SCREEN_TITLE) {
@@ -190,7 +196,7 @@ function runGame() {
       accumulator = 0;
     }
     const car = world.state.player.inCar >= 0 ? world.state.cars[world.state.player.inCar] : null;
-    audio.update(car ? car.speed : 0, world.state.wanted, time);
+    audio.update(car ? car.speed : 0, world.state.wanted, time, Boolean(world.state.heli));
     const orbitYaw = camOffset === 0 ? undefined : world.state.player.angle + camOffset;
     renderer.draw(world.state, screen, best, time, undefined, orbitYaw);
   }

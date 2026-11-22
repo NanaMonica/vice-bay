@@ -10,3 +10,8 @@ export function createRandom(seed) {
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
 }
+
+/** Pick one entry from a list with a seeded random function. */
+export function pick(rng, list) {
+  return list[Math.floor(rng() * list.length)];
+}

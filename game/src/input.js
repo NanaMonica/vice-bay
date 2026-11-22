@@ -11,6 +11,7 @@ export const ACTION_PUNCH = 8;
 export const ACTION_MUTE = 16;
 export const ACTION_CONTINUE = 32;
 export const ACTION_SHOOT = 64;
+export const ACTION_RADIO = 128;
 
 const LEFT = new Set(['ArrowLeft', 'KeyA']);
 const RIGHT = new Set(['ArrowRight', 'KeyD']);
@@ -41,6 +42,7 @@ export function createInput(target) {
     else if (event.code === 'KeyE') { if (!event.repeat) actions |= ACTION_ENTER; }
     else if (event.code === 'KeyF') { if (!event.repeat) actions |= ACTION_PUNCH; }
     else if (event.code === 'KeyM') { if (!event.repeat) actions |= ACTION_MUTE; }
+    else if (event.code === 'KeyR') { if (!event.repeat) actions |= ACTION_RADIO; }
     else if (event.code === 'KeyC') { if (!event.repeat) actions |= ACTION_CONTINUE; }
     else return;
     event.preventDefault();

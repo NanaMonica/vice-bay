@@ -1,10 +1,13 @@
 // Vice Bay rules and state, with no drawing and no browser in it: the city, the
-// player on foot and in cars, traffic, pedestrians, police, wanted level, cash,
-// bullets, missions and the story. step() advances one fixed step and returns
-// what happened as bit flags, so the caller can react without the world
-// knowing about screens. Coordinates are x east, y south on a 3200x3200 map;
-// the renderer turns y into the 3D z axis.
-import { CAR, MISSIONS, PEDESTRIANS, PLAYER, POLICE_MAX, TRAFFIC_CARS, WANTED, WORLD } from './config.js';
+// player on foot and in cars, traffic, pedestrians, police, the VBPD Air-1
+// "Kestrel" helicopter, roadblocks, wanted level, cash, bullets, missions,
+// respect ranks and the Sunset Garage upgrades. step() advances one fixed
+// step and returns what happened as bit flags, so the caller can react
+// without the world knowing about screens. Coordinates are x east, y south
+// on a 3200x3200 map; the renderer turns y into the 3D z axis.
+import { CAR, HELI, MISSIONS, PEDESTRIANS, PLAYER, POLICE_MAX, ROADBLOCK, TRAFFIC_CARS, WANTED, WORLD } from './config.js';
+import { garageBoostFor, garageStageFor, HELI_NAME, POLICE_UNITS } from './districts.js';
+import { pick } from './random.js';
 
 export const EVENT_CASH = 1;
 export const EVENT_MISSION = 2;
@@ -105,6 +108,10 @@ export function createWorld(random) {
     missionTime: 0, missionActive: false, message: '', messageTimer: 0,
     elapsed: 0, busted: false, allDone: false, carHealth: 100,
     trafficTimer: 0, pedTimer: 0, cashTimer: 2,
+    // v3: the Kestrel helicopter (null until 3 stars), the roadblock flag,
+    // progression (missions done, garage stage) and the radio station.
+    heli: null, roadblock: false, missionsDone: 0, garageStage: 1,
+    radioStation: 0, dispatchUnit: '',
   };
 
   function spawnTrafficCar() {
@@ -135,7 +142,44 @@ export function createWorld(random) {
     const angle = random() * TAU;
     const px = clamp(player.x + Math.cos(angle) * 700, 80, WORLD.size - 80);
     const py = clamp(player.y + Math.sin(angle) * 700, 80, WORLD.size - 80);
-    police.push({ x: px, y: py, angle: 0, speed: 0, color: 0, police: true, driver: 'police', siren: random() * TAU, shake: 0 });
+    const unit = pick(random, POLICE_UNITS);
+    police.push({ x: px, y: py, angle: 0, speed: 0, color: 0, police: true, driver: 'police', siren: random() * TAU, shake: 0, unit, block: false });
+    state.dispatchUnit = unit;
+    if (state.messageTimer <= 0) setMessage(`VBPD Dispatch — ${unit} responding.`);
+  }
+
+  /** Park cruisers across the road ahead of the player: the 4-star roadblock. */
+  function spawnRoadblock() {
+    const ahead = ROADBLOCK.ahead;
+    const cx = clamp(player.x + Math.cos(player.angle) * ahead, 160, WORLD.size - 160);
+    const cy = clamp(player.y + Math.sin(player.angle) * ahead, 160, WORLD.size - 160);
+    // Snap the block onto the nearest road, across its direction of travel:
+    // on a horizontal road the centre line is a y value, on a vertical road
+    // it is an x value.
+    const horizontal = Math.abs(Math.cos(player.angle)) > Math.abs(Math.sin(player.angle));
+    const rcx = nearestRoadCentre(cx);
+    const rcy = nearestRoadCentre(cy);
+    const bx = horizontal ? cx : rcx;
+    const by = horizontal ? rcy : cy;
+    const perp = horizontal ? Math.PI / 2 : 0;
+    for (let i = -1; i <= 1; i += 1) {
+      const unit = pick(random, POLICE_UNITS);
+      police.push({
+        x: bx + Math.cos(perp) * i * 40, y: by + Math.sin(perp) * i * 40,
+        angle: perp + Math.PI / 2, speed: 0, color: 0, police: true,
+        driver: 'police', siren: random() * TAU, shake: 0, unit, block: true,
+      });
+    }
+    state.roadblock = true;
+    state.dispatchUnit = pick(random, POLICE_UNITS);
+    setMessage('VBPD Dispatch — roadblock ahead! Break through or go around.');
+  }
+
+  function clearRoadblock() {
+    for (let i = police.length - 1; i >= 0; i -= 1) {
+      if (police[i].block) police.splice(i, 1);
+    }
+    state.roadblock = false;
   }
 
   function spawnCash(x, y) {
@@ -153,6 +197,8 @@ export function createWorld(random) {
     state.message = ''; state.messageTimer = 0; state.elapsed = 0;
     state.busted = false; state.allDone = false; state.carHealth = 100;
     state.trafficTimer = 0; state.pedTimer = 0; state.cashTimer = 2;
+    state.heli = null; state.roadblock = false; state.missionsDone = 0;
+    state.garageStage = 1; state.radioStation = 0; state.dispatchUnit = '';
     // A parked car right by the spawn, so the first mission can start at once.
     cars.push({ x: 1600, y: 1540, angle: 0, speed: 0, color: 1, police: false, driver: 'parked' });
   }
@@ -212,12 +258,14 @@ export function createWorld(random) {
     }
     const steer = input.steer;
     const forward = car.speed >= 0 ? 1 : -1;
+    // The Sunset Garage tune: a respected driver gets a faster car.
+    const boost = car.driver === 'player' ? garageBoostFor(state.garageStage) : 1;
     car.angle += steer * CAR.steer * dt * clamp(Math.abs(car.speed) / 120, 0, 1) * forward;
-    if (input.throttle > 0) car.speed += CAR.accel * dt;
+    if (input.throttle > 0) car.speed += CAR.accel * boost * dt;
     else if (input.throttle < 0) car.speed -= (car.speed > 5 ? CAR.brake : CAR.reverseAccel) * dt;
     else car.speed -= car.speed * 0.6 * dt;
     if (input.brake) car.speed -= car.speed * 2.2 * dt;
-    car.speed = clamp(car.speed, -CAR.maxReverse, CAR.maxSpeed);
+    car.speed = clamp(car.speed, -CAR.maxReverse, CAR.maxSpeed * boost);
     car.x += Math.cos(car.angle) * car.speed * dt;
     car.y += Math.sin(car.angle) * car.speed * dt;
     car.x = clamp(car.x, 60, WORLD.size - 60);
@@ -422,15 +470,17 @@ export function createWorld(random) {
       const cop = police[i];
       cop.siren += dt * 6;
       if (cop.shake > 0) cop.shake -= dt;
-      const targetAngle = roadSteerAngle(cop.x, cop.y, player.x, player.y);
-      let diff = targetAngle - cop.angle;
-      while (diff > Math.PI) diff -= TAU;
-      while (diff < -Math.PI) diff += TAU;
-      cop.angle += clamp(diff, -2.4 * dt, 2.4 * dt);
-      cop.speed += (460 - cop.speed) * dt * 0.8;
-      cop.x += Math.cos(cop.angle) * cop.speed * dt;
-      cop.y += Math.sin(cop.angle) * cop.speed * dt;
-      pushOutOfBuildings(cop, CAR.length / 2);
+      if (!cop.block) {
+        const targetAngle = roadSteerAngle(cop.x, cop.y, player.x, player.y);
+        let diff = targetAngle - cop.angle;
+        while (diff > Math.PI) diff -= TAU;
+        while (diff < -Math.PI) diff += TAU;
+        cop.angle += clamp(diff, -2.4 * dt, 2.4 * dt);
+        cop.speed += (460 - cop.speed) * dt * 0.8;
+        cop.x += Math.cos(cop.angle) * cop.speed * dt;
+        cop.y += Math.sin(cop.angle) * cop.speed * dt;
+        pushOutOfBuildings(cop, CAR.length / 2);
+      }
       if (dist(cop.x, cop.y, player.x, player.y) < 44) {
         if (player.invuln <= 0) {
           player.health -= inCar ? 5 : 20;
@@ -441,6 +491,31 @@ export function createWorld(random) {
         }
       }
     }
+    // --- VBPD Air-1 "Kestrel": the helicopter hunts from above at 3 stars.
+    if (wantedStars >= HELI.minWanted && !state.heli) {
+      state.heli = { x: player.x + HELI.followX, y: player.y + HELI.followY, angle: 0, rotor: 0, alt: HELI.altitude };
+      setMessage(`${HELI_NAME} is overhead — lose the chopper.`);
+    }
+    if (state.heli) {
+      if (wantedStars < HELI.minWanted) {
+        state.heli = null;
+      } else {
+        const h = state.heli;
+        h.rotor += dt * 28;
+        const tx = player.x + HELI.followX;
+        const ty = player.y + HELI.followY;
+        const d = dist(h.x, h.y, tx, ty);
+        if (d > 4) {
+          const a = Math.atan2(ty - h.y, tx - h.x);
+          h.angle = a;
+          h.x += Math.cos(a) * Math.min(HELI.speed, d * 2) * dt;
+          h.y += Math.sin(a) * Math.min(HELI.speed, d * 2) * dt;
+        }
+      }
+    }
+    // --- roadblock: at 4 stars the Bay PD blocks the road ahead.
+    if (wantedStars >= ROADBLOCK.minWanted && !state.roadblock) spawnRoadblock();
+    else if (wantedStars < ROADBLOCK.minWanted - 1 && state.roadblock) clearRoadblock();
     if (state.carHealth <= 0 && inCar) {
       inCar.driver = 'parked';
       inCar.speed = 0;
@@ -466,8 +541,13 @@ export function createWorld(random) {
           state.cashAmount += m.reward;
           state.missionActive = false;
           state.wanted = Math.max(0, state.wanted - 1);
+          const prevStage = state.garageStage;
+          state.missionsDone += 1;
+          state.garageStage = garageStageFor(state.missionsDone);
           events |= EVENT_MISSION;
-          setMessage(`Mission complete: ${m.name} — +$${m.reward}.`);
+          setMessage(state.garageStage > prevStage
+            ? `Mission complete: ${m.name} — +$${m.reward}. Sunset Garage tuned your car to stage ${state.garageStage}.`
+            : `Mission complete: ${m.name} — +$${m.reward}.`);
           const next = state.missionIndex + 1;
           if (next < MISSIONS.length) startMission(next);
           else state.allDone = true;

@@ -1,10 +1,13 @@
 // Drawing only: the world's state and the current screen in, pixels out.
-// A three.js scene paints the city in 3D — towers with lit windows, streets,
-// beach and bay, traffic, pedestrians and police — while DOM elements draw
-// the HUD, wanted stars, mission text and a live minimap over it. The camera
-// chases the player (or the car) from behind and above; screenshot scenes
-// may pass a fixed camera instead.
+// A three.js scene paints the city in 3D at golden hour — low orange sun,
+// long shadows, towers with lit windows, streets, beach and bay, traffic,
+// pedestrians, police, the VBPD Air-1 "Kestrel" helicopter with its
+// searchlight, and roadblocks — while DOM elements draw the HUD, wanted
+// stars, mission text, respect rank, radio station and a live minimap over
+// it. The camera chases the player (or the car) from behind and above;
+// screenshot scenes may pass a fixed camera instead.
 import { FIELD, MISSIONS, PALETTE, WORLD } from './config.js';
+import { districtAt, RADIO_STATIONS, respectRankFor } from './districts.js';
 
 export const SCREEN_TITLE = 'title';
 export const SCREEN_PLAY = 'play';
@@ -48,9 +51,10 @@ export function createRenderer(canvas, state) {
 
   const camera = new THREE.PerspectiveCamera(62, FIELD.width / FIELD.height, 1, 6000);
 
-  // --- lights: warm sun plus a soft sky fill. The sun's shadow box rides
-  // with the player so shadows stay crisp wherever the action is.
-  const sun = new THREE.DirectionalLight(PALETTE.sun, 1.15);
+  // --- lights: low golden-hour sun plus a warm sky fill. The sun's
+  // shadow box rides with the player so shadows stay crisp — and long,
+  // because the sun sits low — wherever the action is.
+  const sun = new THREE.DirectionalLight(PALETTE.sun, 1.25);
   sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
   sun.shadow.camera.left = -420;
@@ -62,7 +66,7 @@ export function createRenderer(canvas, state) {
   sun.shadow.bias = -0.0006;
   scene.add(sun);
   scene.add(sun.target);
-  const sky = new THREE.HemisphereLight(0xbfd9ff, 0x3f7a4a, 0.75);
+  const sky = new THREE.HemisphereLight(0xffd9a8, 0x5a4a3a, 0.6);
   scene.add(sky);
 
   // --- ground: one big canvas texture with the whole city plan painted on
@@ -72,12 +76,12 @@ export function createRenderer(canvas, state) {
     const g = c.getContext('2d');
     const k = 1024 / WORLD.size;
     const X = (v) => v * k;
-    g.fillStyle = '#3f7a4a';
+    g.fillStyle = '#55703f';
     g.fillRect(0, 0, 1024, 1024);
-    // Bay water and sand on the west strip.
-    g.fillStyle = '#1c6f8f';
+    // Bay water and sand on the west strip, warm at golden hour.
+    g.fillStyle = '#3a7d99';
     g.fillRect(0, 0, X(66), 1024);
-    g.fillStyle = '#c9a86a';
+    g.fillStyle = '#d9b47a';
     g.fillRect(X(66), 0, X(54), 1024);
     // Sidewalk-coloured road beds, then the road itself, then dashes.
     for (let i = 0; i < 10; i += 1) {
@@ -147,8 +151,9 @@ export function createRenderer(canvas, state) {
     g.fillRect(0, 0, 128, 256);
     for (let row = 0; row < 12; row += 1) {
       for (let col = 0; col < 6; col += 1) {
-        const lit = rnd() < 0.28;
-        g.fillStyle = lit ? '#ffe9a8' : 'rgba(10, 18, 28, 0.55)';
+        // Golden hour: most windows are lit, warm against the dusk.
+        const lit = rnd() < 0.55;
+        g.fillStyle = lit ? '#ffd98a' : 'rgba(10, 18, 28, 0.55)';
         g.fillRect(8 + col * 20, 10 + row * 20, 12, 12);
       }
     }
@@ -218,8 +223,8 @@ export function createRenderer(canvas, state) {
     scene.add(group);
   }
 
-  // --- clouds: white puffs drifting over the city.
-  const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 });
+  // --- clouds: pink-tinged puffs drifting over the city at golden hour.
+  const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffe0c0, transparent: true, opacity: 0.9 });
   const cloudGeo = new THREE.SphereGeometry(1, 8, 6);
   const clouds = [];
   for (let i = 0; i < 10; i += 1) {
@@ -306,6 +311,49 @@ export function createRenderer(canvas, state) {
   playerMesh.scale.setScalar(1.15);
   scene.add(playerMesh);
 
+  // --- VBPD Air-1 "Kestrel": the police helicopter, with a spinning rotor
+  // and a searchlight cone that tracks the player. One mesh, reused.
+  const heliGroup = new THREE.Group();
+  const heliBodyMat = new THREE.MeshLambertMaterial({ color: 0x1a2530 });
+  const heliBody = new THREE.Mesh(new THREE.BoxGeometry(34, 12, 16), heliBodyMat);
+  heliBody.position.y = 0;
+  heliBody.castShadow = true;
+  heliGroup.add(heliBody);
+  const heliTail = new THREE.Mesh(new THREE.BoxGeometry(26, 5, 5), heliBodyMat);
+  heliTail.position.set(-28, 2, 0);
+  heliGroup.add(heliTail);
+  const heliGlass = new THREE.Mesh(new THREE.BoxGeometry(10, 7, 14), new THREE.MeshLambertMaterial({ color: 0x9fd4e8 }));
+  heliGlass.position.set(14, 1, 0);
+  heliGroup.add(heliGlass);
+  const heliRotor = new THREE.Mesh(new THREE.BoxGeometry(76, 1.5, 4), new THREE.MeshLambertMaterial({ color: 0x14181f }));
+  heliRotor.position.y = 9;
+  heliGroup.add(heliRotor);
+  const heliRotor2 = new THREE.Mesh(new THREE.BoxGeometry(4, 1.5, 76), new THREE.MeshLambertMaterial({ color: 0x14181f }));
+  heliRotor2.position.y = 9;
+  heliGroup.add(heliRotor2);
+  const heliSkidMat = new THREE.MeshLambertMaterial({ color: 0x2b3442 });
+  for (const dz of [7, -7]) {
+    const skid = new THREE.Mesh(new THREE.BoxGeometry(30, 2, 2), heliSkidMat);
+    skid.position.set(0, -8, dz);
+    heliGroup.add(skid);
+  }
+  // Searchlight: a cone from the belly to the ground, plus a bright pool.
+  const heliBeam = new THREE.Mesh(
+    new THREE.ConeGeometry(26, 260, 12, 1, true),
+    new THREE.MeshBasicMaterial({ color: 0xfff2c0, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false }),
+  );
+  heliBeam.position.y = -130;
+  heliGroup.add(heliBeam);
+  const heliSpot = new THREE.Mesh(
+    new THREE.CircleGeometry(30, 20),
+    new THREE.MeshBasicMaterial({ color: 0xfff2c0, transparent: true, opacity: 0.35, side: THREE.DoubleSide, depthWrite: false }),
+  );
+  heliSpot.rotation.x = -Math.PI / 2;
+  heliSpot.position.y = -259;
+  heliGroup.add(heliSpot);
+  heliGroup.visible = false;
+  scene.add(heliGroup);
+
   // --- cash coins, bullets and the mission beam.
   const coinGeo = new THREE.CylinderGeometry(9, 9, 3, 12);
   const coinMat = new THREE.MeshLambertMaterial({ color: PALETTE.cash, emissive: 0x1d7a44 });
@@ -375,6 +423,7 @@ export function createRenderer(canvas, state) {
   const panelPrompt = $('panel-prompt');
   const minimap = $('minimap');
   const mapCtx = minimap.getContext('2d');
+  const rankEl = $('hud-rank');
   let lastHud = '';
 
   function drawMinimap(state) {
@@ -404,6 +453,12 @@ export function createRenderer(canvas, state) {
       mapCtx.fillStyle = '#5b8cff';
       mapCtx.fillRect(cop.x * kx - 2, cop.y * ky - 2, 4, 4);
     }
+    if (state.heli) {
+      mapCtx.fillStyle = '#ff5c5c';
+      mapCtx.beginPath();
+      mapCtx.arc(state.heli.x * kx, state.heli.y * ky, 4, 0, TAU);
+      mapCtx.fill();
+    }
     mapCtx.fillStyle = '#ffd23f';
     mapCtx.beginPath();
     mapCtx.arc(state.player.x * kx, state.player.y * ky, 5, 0, TAU);
@@ -411,18 +466,21 @@ export function createRenderer(canvas, state) {
     mapCtx.fillStyle = '#f2f5f8';
     mapCtx.font = 'bold 11px system-ui, sans-serif';
     mapCtx.textAlign = 'left';
-    mapCtx.fillText('VICE BAY', 6, h - 6);
+    mapCtx.fillText(districtAt(state.player.x, state.player.y).toUpperCase(), 6, h - 6);
   }
 
   function updateHud(state, screen, best) {
     const inCar = state.player.inCar >= 0;
     const m = state.missionActive ? MISSIONS[state.missionIndex] : null;
-    const key = `${state.cashAmount}|${state.missionIndex}|${state.missionActive}|${Math.ceil(state.missionTime)}|${Math.floor(state.wanted)}|${Math.round(state.player.health)}|${inCar ? Math.round(Math.abs(state.cars[state.player.inCar].speed) * 0.12) : -1}|${state.messageTimer > 0 ? state.message : ''}|${screen}`;
+    const district = districtAt(state.player.x, state.player.y);
+    const station = RADIO_STATIONS[state.radioStation % RADIO_STATIONS.length];
+    const key = `${state.cashAmount}|${state.missionIndex}|${state.missionActive}|${Math.ceil(state.missionTime)}|${Math.floor(state.wanted)}|${Math.round(state.player.health)}|${inCar ? Math.round(Math.abs(state.cars[state.player.inCar].speed) * 0.12) : -1}|${state.messageTimer > 0 ? state.message : ''}|${screen}|${state.missionsDone}|${state.garageStage}|${state.radioStation}|${district}|${state.dispatchUnit}`;
     if (key === lastHud) return;
     lastHud = key;
     hud.style.display = screen === SCREEN_PLAY ? 'block' : 'none';
     cashEl.textContent = `$${state.cashAmount}`;
     missionEl.textContent = m ? `${m.name} → ${m.target.label}` : (state.allDone ? 'All missions done — free roam!' : 'Free roam — steal a car, grab cash');
+    rankEl.textContent = `RESPECT: ${respectRankFor(state.missionsDone)} · ${district} · Garage Stage ${state.garageStage} · ♪ ${station.name}`;
     if (m && m.timeLimit) {
       timerEl.style.display = 'block';
       timerEl.textContent = `Time left: ${Math.ceil(state.missionTime)}s`;
@@ -437,17 +495,19 @@ export function createRenderer(canvas, state) {
     const stars = Math.floor(state.wanted);
     starsEl.textContent = '★★★★★'.split('').map((s, i) => (i < stars ? s : '☆')).join('');
     starsEl.style.color = stars > 0 ? '#ffd23f' : 'rgba(255,255,255,0.25)';
-    wantedEl.textContent = state.wanted > 0 ? 'WANTED — lose the cops' : 'Clean';
+    wantedEl.textContent = state.wanted > 0
+      ? (state.dispatchUnit ? `WANTED — ${state.dispatchUnit} on you` : 'WANTED — lose the cops')
+      : 'Clean';
     wantedEl.style.color = state.wanted > 0 ? '#ff5c5c' : '#9aa5b5';
     healthEl.style.width = `${Math.max(0, state.player.health)}%`;
     healthEl.style.background = state.player.health > 40 ? '#37d67a' : '#ff5c5c';
     if (inCar) {
       const car = state.cars[state.player.inCar];
       speedEl.textContent = `${Math.round(Math.abs(car.speed) * 0.12)} mph`;
-      hintEl.textContent = 'W/S drive · A/D steer · Space brake · E exit';
+      hintEl.textContent = 'W/S drive · A/D steer · Space brake · E exit · R radio';
     } else {
       speedEl.textContent = '';
-      hintEl.textContent = 'WASD walk · E steal car · F punch · Click shoot · P pause · M mute';
+      hintEl.textContent = 'WASD walk · E steal car · F punch · Click shoot · P pause · M mute · R radio';
     }
     if (state.messageTimer > 0 && state.message) {
       toastEl.style.display = 'block';
@@ -496,8 +556,9 @@ export function createRenderer(canvas, state) {
     const inCar = p.inCar >= 0 ? state.cars[p.inCar] : null;
     const speed = inCar ? Math.abs(inCar.speed) : 0;
 
-    // Sun shadow box follows the player.
-    sun.position.set(p.x + 600, 900, p.y + 300);
+    // Sun shadow box follows the player; the sun sits low at golden hour,
+    // so shadows stretch long across the streets.
+    sun.position.set(p.x + 900, 380, p.y - 500);
     sun.target.position.set(p.x, 0, p.y);
     sun.target.updateMatrixWorld();
 
@@ -529,6 +590,23 @@ export function createRenderer(canvas, state) {
           bar.red.material.color.setHex(redOn ? 0xff3b30 : 0x4d0d0d);
           bar.blue.material.color.setHex(redOn ? 0x0d1d4d : 0x2f6df6);
         }
+        // A roadblock cruiser carries a striped barrier across its nose.
+        if (cop.block && !mesh.userData.barrier) {
+          const stripe = new THREE.Mesh(
+            new THREE.BoxGeometry(4, 5, 64),
+            new THREE.MeshLambertMaterial({ color: 0xf2c94c }),
+          );
+          stripe.position.set(30, 8, 0);
+          mesh.add(stripe);
+          const stripe2 = new THREE.Mesh(
+            new THREE.BoxGeometry(4, 5, 64),
+            new THREE.MeshLambertMaterial({ color: 0x14181f }),
+          );
+          stripe2.position.set(30, 8, 0);
+          stripe2.scale.set(1, 1, 0.5);
+          mesh.add(stripe2);
+          mesh.userData.barrier = true;
+        }
       });
     syncList(state.peds, pedMeshes,
       (ped) => buildPerson(PALETTE.pedShirts[ped.color % PALETTE.pedShirts.length], skinTones[ped.color % skinTones.length]),
@@ -555,6 +633,24 @@ export function createRenderer(canvas, state) {
       playerMesh.position.set(p.x, Math.abs(Math.sin(time * 8)) * 0, p.y);
       playerMesh.rotation.y = -p.angle;
       if (p.invuln > 0) playerMesh.visible = Math.floor(p.invuln * 10) % 2 === 1;
+    }
+
+    // The Kestrel: hover above the player, rotor spinning, searchlight
+    // cone down onto the street.
+    if (state.heli) {
+      const h = state.heli;
+      heliGroup.visible = true;
+      heliGroup.position.set(h.x, h.alt, h.y);
+      heliGroup.rotation.y = -h.angle;
+      heliRotor.rotation.y = h.rotor;
+      heliRotor2.rotation.y = h.rotor + Math.PI / 2;
+      // The beam hangs straight down from the belly; the pool sits on the
+      // street below the chopper.
+      heliBeam.position.y = -h.alt / 2;
+      heliBeam.scale.y = h.alt / 260;
+      heliSpot.position.y = -h.alt + 1;
+    } else {
+      heliGroup.visible = false;
     }
 
     // Mission beam and diamond.
@@ -611,7 +707,7 @@ export function createRenderer(canvas, state) {
       showPanel('VICE BAY', [
         'An open-world crime game in the spirit of GTA —',
         'our own city, our own story, nothing borrowed.',
-        'Steal cars, outrun the Bay PD, run Mara\'s jobs.',
+        'Steal cars, outrun the Bay PD and the Kestrel, run Mara\'s 10 jobs.',
         `Best cash so far: $${best}`,
         '',
       ], 'Press Enter to start  ·  C to continue', '#ffd23f');

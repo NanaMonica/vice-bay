@@ -43,6 +43,22 @@ export const WANTED = {
   max: 5,
 };
 
+/** Police helicopter: arrives at 3 stars, hunts from above. */
+export const HELI = {
+  minWanted: 3,
+  speed: 380,
+  altitude: 260,
+  followX: 220,
+  followY: -160,
+};
+
+/** Roadblock: at 4 stars the Bay PD parks cruisers across the road ahead. */
+export const ROADBLOCK = {
+  minWanted: 4,
+  ahead: 380,
+  cars: 3,
+};
+
 export const MISSIONS = [
   {
     id: 'first-wheels',
@@ -88,23 +104,77 @@ export const MISSIONS = [
     id: 'sunset-getaway',
     name: 'Sunset Getaway',
     giver: 'Mara',
-    brief: 'Final job: four stars, one fast car, and the boat at Sunset Marina. Do not stop.',
+    brief: 'Final job of the first run: four stars, one fast car, and the boat at Sunset Marina. Do not stop.',
     target: { x: 480, y: 3040, label: 'Sunset Marina' },
     reward: 600,
     needCar: true,
     timeLimit: 60,
     startWanted: 4,
   },
+  {
+    id: 'neon-nights',
+    name: 'Neon Nights',
+    giver: 'Mara',
+    brief: 'Street race: beat the clock to Neon Row. The Vale Crew is watching.',
+    target: { x: 2400, y: 480, label: 'Neon Row' },
+    reward: 450,
+    needCar: true,
+    timeLimit: 70,
+    startWanted: 1,
+  },
+  {
+    id: 'harbor-lights',
+    name: 'Harbor Lights',
+    giver: 'Mara',
+    brief: 'Run the package to Harbor Heights Pier before the Bay PD locks the bridges.',
+    target: { x: 2720, y: 480, label: 'Harbor Heights Pier' },
+    reward: 550,
+    needCar: true,
+    timeLimit: 80,
+  },
+  {
+    id: 'vault-breaker',
+    name: 'Vault Breaker',
+    giver: 'Mara',
+    brief: 'Second vault job: crack the Vice Bay Credit Union and get clear.',
+    target: { x: 2080, y: 1120, label: 'Vice Bay Credit Union' },
+    reward: 700,
+    needCar: false,
+    timeLimit: 75,
+    startWanted: 3,
+  },
+  {
+    id: 'kestrel-down',
+    name: 'Kestrel Down',
+    giver: 'Mara',
+    brief: 'Air-1 Kestrel is overhead. Lose the chopper and reach the Palm Court hideout.',
+    target: { x: 1760, y: 3040, label: 'Palm Court Hideout' },
+    reward: 800,
+    needCar: false,
+    timeLimit: 90,
+    startWanted: 4,
+  },
+  {
+    id: 'bay-king',
+    name: 'Bay King',
+    giver: 'Mara',
+    brief: 'Final job: five stars, one fast car, and the boat at Sunset Marina. Do not stop.',
+    target: { x: 480, y: 3040, label: 'Sunset Marina' },
+    reward: 1000,
+    needCar: true,
+    timeLimit: 75,
+    startWanted: 5,
+  },
 ];
 
-/** Colours for the 3D city: warm sun, blue bay water, pastel towers. */
+/** Colours for the 3D city at golden hour: low orange sun, warm haze, lit windows. */
 export const PALETTE = {
-  sky: 0x8ec3e8,
-  fog: 0x9fc3e8,
-  sun: 0xfff2d0,
-  ground: 0x3f7a4a,
-  sand: 0xc9a86a,
-  water: 0x1c6f8f,
+  sky: 0xff9e57,
+  fog: 0xf2a56b,
+  sun: 0xffc98a,
+  ground: 0x55703f,
+  sand: 0xd9b47a,
+  water: 0x3a7d99,
   road: 0x2b2f38,
   park: 0x2a7a4a,
   buildingTones: [0x8e6fb0, 0x5f8fb8, 0xb87a5a, 0x6a9a7a, 0xc9a86a, 0x7a7f8e],
